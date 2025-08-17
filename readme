@@ -1,0 +1,13 @@
+here is the API Google translation
+https://translation.googleapis.com/language/translate/v2?key=$apiKey
+and here is the token(api key) :- AIzaSyB48G3cCon3rpWOeisxIdM8ES9kPESMteE
+
+
+download url formate :- ${ApiConfig.baseUrl}/booking/invoice/download/${element.invoiceNo}
+for subscrition detail data use this api :- https://api.stayhub.sa/property/details/686f6dc3b1c2f0d9f3da0170
+url formate :- https://api.stayhub.sa/property/details/$propertyId
+for filter
+{
+    // "q":"Smart",
+    // "filter":["Trial","Expired"] // Premium, Trial, Expiring, Expired,PaymentFailed,Cancelled
+}
