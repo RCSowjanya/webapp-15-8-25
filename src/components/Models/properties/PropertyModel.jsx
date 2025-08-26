@@ -1,8 +1,6 @@
-// PropertyModel.js - Updated to use ApiService with server actions
 "use server";
 import api from "@/utils/apiService";
 import { auth } from "@/app/(dashboard-screens)/auth";
-
 /**
  * Fetch all active properties
  * @returns {Promise<Object>} Response object with success status and data
@@ -13,25 +11,41 @@ export const fetchActiveProperties = async () => {
 
   try {
     console.log("Fetching active properties...");
-    
-    const response = await api.get('/property/list', {
+    console.log("Session:", session);
+    console.log("Session keys:", Object.keys(session || {}));
+    console.log("Token:", token);
+    console.log("Token type:", typeof token);
+
+    const response = await api.get("/property/list", {
       authorizationHeader: `Bearer ${token}`,
       showSuccessToast: false,
       showErrorToast: false, // Handle errors manually
     });
 
-    if (response.success && response.data?.success) {
-      // Filter only active properties from the correct data path
-      const allProperties = response.data.data.data || [];
-      const activeProperties = allProperties.filter(
-        (property) => property.isActive === true
-      );
-      
-      console.log(`Fetched ${activeProperties.length} active properties out of ${allProperties.length} total`);
-      
+    console.log("Full API Response:", response);
+    console.log("Response structure:", {
+      responseSuccess: response.success,
+      responseData: response.data,
+      responseDataSuccess: response.data?.success,
+      responseDataData: response.data?.data,
+      responseDataDataData: response.data?.data?.data,
+    });
+
+    if (response.success && response.data) {
+      // Your API returns { success: true, message: string, data: [...] }
+      // But support both array at data and nested data.data
+      const payload = response.data?.data;
+      const allProperties = Array.isArray(payload)
+        ? payload
+        : Array.isArray(payload?.data)
+        ? payload.data
+        : [];
+
+      console.log("All properties from API (normalized):", allProperties);
+
       return {
         success: true,
-        data: activeProperties,
+        data: allProperties,
         message: "Properties fetched successfully",
       };
     } else {
@@ -39,7 +53,10 @@ export const fetchActiveProperties = async () => {
       return {
         success: false,
         data: [],
-        message: response.data?.message || response.message || "Failed to fetch properties",
+        message:
+          response.data?.message ||
+          response.message ||
+          "Failed to fetch properties",
       };
     }
   } catch (error) {
@@ -71,7 +88,7 @@ export const fetchPropertyById = async (propertyId) => {
     }
 
     console.log(`Fetching property with ID: ${propertyId}`);
-    
+
     const response = await api.get(`/property/${propertyId}`, {
       authorizationHeader: `Bearer ${token}`,
       showSuccessToast: false,
@@ -80,7 +97,7 @@ export const fetchPropertyById = async (propertyId) => {
 
     if (response.success && response.data?.success) {
       console.log("Property fetched successfully:", response.data.data);
-      
+
       return {
         success: true,
         data: response.data.data,
@@ -91,7 +108,10 @@ export const fetchPropertyById = async (propertyId) => {
       return {
         success: false,
         data: null,
-        message: response.data?.message || response.message || "Failed to fetch property",
+        message:
+          response.data?.message ||
+          response.message ||
+          "Failed to fetch property",
       };
     }
   } catch (error) {
@@ -115,10 +135,10 @@ export const searchProperties = async (filters = {}) => {
 
   try {
     console.log("Searching properties with filters:", filters);
-    
+
     // Build search parameters
     const searchParams = {};
-    
+
     // Add filters to search params
     if (filters.city) searchParams.city = filters.city;
     if (filters.neighbourhood && filters.neighbourhood.length > 0) {
@@ -128,15 +148,16 @@ export const searchProperties = async (filters = {}) => {
       searchParams.propertyType = filters.propertyType;
     }
     if (filters.checkIn) searchParams.checkIn = filters.checkIn.toISOString();
-    if (filters.checkOut) searchParams.checkOut = filters.checkOut.toISOString();
+    if (filters.checkOut)
+      searchParams.checkOut = filters.checkOut.toISOString();
     if (filters.adults) searchParams.adults = filters.adults;
     if (filters.children) searchParams.children = filters.children;
     if (filters.rooms) searchParams.rooms = filters.rooms;
-    
+
     // Always filter for active properties
     searchParams.isActive = true;
-    
-    const response = await api.get('/property/search', {
+
+    const response = await api.get("/property/search", {
       searchParams,
       authorizationHeader: `Bearer ${token}`,
       showSuccessToast: false,
@@ -146,7 +167,7 @@ export const searchProperties = async (filters = {}) => {
     if (response.success && response.data?.success) {
       const properties = response.data.data.data || [];
       console.log(`Found ${properties.length} properties matching filters`);
-      
+
       return {
         success: true,
         data: properties,
@@ -157,7 +178,10 @@ export const searchProperties = async (filters = {}) => {
       return {
         success: false,
         data: [],
-        message: response.data?.message || response.message || "Failed to search properties",
+        message:
+          response.data?.message ||
+          response.message ||
+          "Failed to search properties",
       };
     }
   } catch (error) {
@@ -181,8 +205,8 @@ export const createProperty = async (propertyData) => {
 
   try {
     console.log("Creating new property...");
-    
-    const response = await api.post('/property', propertyData, {
+
+    const response = await api.post("/property", propertyData, {
       authorizationHeader: `Bearer ${token}`,
       showSuccessToast: false,
       showErrorToast: false,
@@ -190,7 +214,7 @@ export const createProperty = async (propertyData) => {
 
     if (response.success && response.data?.success) {
       console.log("Property created successfully:", response.data.data);
-      
+
       return {
         success: true,
         data: response.data.data,
@@ -201,7 +225,10 @@ export const createProperty = async (propertyData) => {
       return {
         success: false,
         data: null,
-        message: response.data?.message || response.message || "Failed to create property",
+        message:
+          response.data?.message ||
+          response.message ||
+          "Failed to create property",
       };
     }
   } catch (error) {
@@ -234,7 +261,7 @@ export const updateProperty = async (propertyId, propertyData) => {
     }
 
     console.log(`Updating property with ID: ${propertyId}`);
-    
+
     const response = await api.put(`/property/${propertyId}`, propertyData, {
       authorizationHeader: `Bearer ${token}`,
       showSuccessToast: false,
@@ -243,7 +270,7 @@ export const updateProperty = async (propertyId, propertyData) => {
 
     if (response.success && response.data?.success) {
       console.log("Property updated successfully:", response.data.data);
-      
+
       return {
         success: true,
         data: response.data.data,
@@ -254,7 +281,10 @@ export const updateProperty = async (propertyId, propertyData) => {
       return {
         success: false,
         data: null,
-        message: response.data?.message || response.message || "Failed to update property",
+        message:
+          response.data?.message ||
+          response.message ||
+          "Failed to update property",
       };
     }
   } catch (error) {
@@ -286,7 +316,7 @@ export const deleteProperty = async (propertyId) => {
     }
 
     console.log(`Deleting property with ID: ${propertyId}`);
-    
+
     const response = await api.delete(`/property/${propertyId}`, {
       authorizationHeader: `Bearer ${token}`,
       showSuccessToast: false,
@@ -295,7 +325,7 @@ export const deleteProperty = async (propertyId) => {
 
     if (response.success && response.data?.success) {
       console.log("Property deleted successfully");
-      
+
       return {
         success: true,
         data: response.data.data,
@@ -306,7 +336,10 @@ export const deleteProperty = async (propertyId) => {
       return {
         success: false,
         data: null,
-        message: response.data?.message || response.message || "Failed to delete property",
+        message:
+          response.data?.message ||
+          response.message ||
+          "Failed to delete property",
       };
     }
   } catch (error) {
@@ -347,18 +380,23 @@ export const uploadPropertyImages = async (propertyId, files) => {
     }
 
     console.log(`Uploading images for property: ${propertyId}`);
-    
-    const response = await api.upload(`/property/${propertyId}/images`, files, {
-      propertyId,
-    }, {
-      authorizationHeader: `Bearer ${token}`,
-      showSuccessToast: false,
-      showErrorToast: false,
-    });
+
+    const response = await api.upload(
+      `/property/${propertyId}/images`,
+      files,
+      {
+        propertyId,
+      },
+      {
+        authorizationHeader: `Bearer ${token}`,
+        showSuccessToast: false,
+        showErrorToast: false,
+      }
+    );
 
     if (response.success && response.data?.success) {
       console.log("Images uploaded successfully:", response.data.data);
-      
+
       return {
         success: true,
         data: response.data.data,
@@ -369,7 +407,10 @@ export const uploadPropertyImages = async (propertyId, files) => {
       return {
         success: false,
         data: null,
-        message: response.data?.message || response.message || "Failed to upload images",
+        message:
+          response.data?.message ||
+          response.message ||
+          "Failed to upload images",
       };
     }
   } catch (error) {
@@ -425,7 +466,9 @@ export const updatePropertyStatus = async (propertyIds, action) => {
       return {
         success: false,
         error: response.error || response.message,
-        message: `Failed to ${action} properties. ${response.message || "Please try again."}`,
+        message: `Failed to ${action} properties. ${
+          response.message || "Please try again."
+        }`,
       };
     }
   } catch (error) {
@@ -444,7 +487,10 @@ export const updatePropertyStatus = async (propertyIds, action) => {
  * @param {boolean} reviewEnabled - Enable or disable reviews
  * @returns {Promise<Object>} Response object with success status and data
  */
-export const updateReviewsStatus = async (propertyIds, reviewEnabled = false) => {
+export const updateReviewsStatus = async (
+  propertyIds,
+  reviewEnabled = false
+) => {
   const session = await auth();
   const token = session?.token || null;
 
@@ -481,7 +527,9 @@ export const updateReviewsStatus = async (propertyIds, reviewEnabled = false) =>
     return {
       success: true,
       data: response.data || response,
-      message: `Successfully ${reviewEnabled ? "enabled" : "disabled"} reviews for ${propertyIds.length} property(ies)`,
+      message: `Successfully ${
+        reviewEnabled ? "enabled" : "disabled"
+      } reviews for ${propertyIds.length} property(ies)`,
     };
   } catch (error) {
     console.error("Update Reviews Status Error:", {
@@ -494,7 +542,9 @@ export const updateReviewsStatus = async (propertyIds, reviewEnabled = false) =>
     return {
       success: false,
       error: error.message || "Network error",
-      message: `Failed to ${reviewEnabled ? "enable" : "disable"} reviews. Please try again.`,
+      message: `Failed to ${
+        reviewEnabled ? "enable" : "disable"
+      } reviews. Please try again.`,
     };
   }
 };

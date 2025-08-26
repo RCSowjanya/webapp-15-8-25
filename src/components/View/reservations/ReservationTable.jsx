@@ -15,66 +15,87 @@ import { format } from "date-fns";
 import { MdClose } from "react-icons/md";
 import { DateRange } from "react-date-range";
 
-const ReservationTable = ({ dateRange, onDateRangeChange }) => {
+const ReservationTable = ({
+  dateRange,
+  onDateRangeChange,
+  initialReservations = [],
+  initialPagination,
+}) => {
   const [openPopoverId, setOpenPopoverId] = useState(null);
   const [selectedReservation, setSelectedReservation] = useState(null);
-  const [reservations, setReservations] = useState([]);
+  const [reservations, setReservations] = useState(initialReservations);
   const [filteredReservations, setFilteredReservations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [pagination, setPagination] = useState({
-    currentPage: 1,
-    totalPage: 1,
-    pageSize: 10,
-  });
+  const [pagination, setPagination] = useState(
+    initialPagination || { currentPage: 1, totalPage: 1, pageSize: 10 }
+  );
   const [openNoteId, setOpenNoteId] = useState(null);
   const [selectedNote, setSelectedNote] = useState([]);
   const [noteText, setNoteText] = useState("");
   const [showAddNotePopup, setShowAddNotePopup] = useState(null);
   const [newNoteText, setNewNoteText] = useState("");
   const [isAddingNote, setIsAddingNote] = useState(false);
-  const [bypassDateFilter, setBypassDateFilter] = useState(false);
+
   const [showDatePicker, setShowDatePicker] = useState(false);
 
   useEffect(() => {
-    fetchReservations();
+    if (!reservations?.length) {
+      fetchReservations();
+    } else {
+      setLoading(false);
+    }
   }, [pagination.currentPage]);
 
   // Add refresh mechanism for new bookings
   useEffect(() => {
-    const checkForNewBookings = () => {
-      const shouldRefresh = sessionStorage.getItem("refreshReservations");
-      if (shouldRefresh === "true") {
-        console.log("New booking detected in ReservationTable, refreshing...");
-        sessionStorage.removeItem("refreshReservations");
-        toast.success("New booking detected! Refreshing reservations...");
+    // Check URL parameters for refresh flag
+    const urlParams = new URLSearchParams(window.location.search);
+    const shouldRefresh = urlParams.get("refresh");
+    const isNewBooking = urlParams.get("new");
 
-        // Temporarily bypass date filter to show all reservations
-        setBypassDateFilter(true);
+    if (shouldRefresh === "true") {
+      console.log("Refresh flag detected in URL, refreshing reservations...");
+      // Remove the refresh parameter from URL
+      const newUrl = window.location.pathname;
+      window.history.replaceState({}, "", newUrl);
 
-        // Refresh once after a short delay to allow backend to process
+      // Reset to first page to see newest bookings
+      setPagination((prev) => ({ ...prev, currentPage: 1 }));
+
+      // Add a small delay to ensure the backend has processed the new booking
+      setTimeout(() => {
+        fetchReservations();
+      }, 1000);
+    }
+
+    // Check localStorage for new booking flag
+    try {
+      const newBookingCreated = localStorage.getItem("newBookingCreated");
+      if (newBookingCreated === "true") {
+        console.log("New booking flag detected in localStorage, refreshing...");
+        localStorage.removeItem("newBookingCreated");
+
+        // Reset to first page to see newest bookings
+        setPagination((prev) => ({ ...prev, currentPage: 1 }));
+
+        // Add a small delay to ensure the backend has processed the new booking
         setTimeout(() => {
-          console.log("Refreshing reservations after new booking...");
-          // Reset to first page to see newest bookings
-          setPagination((prev) => ({ ...prev, currentPage: 1 }));
           fetchReservations();
-          // Re-enable date filter after 5 seconds
-          setTimeout(() => {
-            setBypassDateFilter(false);
-          }, 5000);
-        }, 3000);
+        }, 1000);
       }
-    };
-
-    // Check on mount
-    checkForNewBookings();
+    } catch (error) {
+      console.error("Error checking localStorage:", error);
+    }
 
     // Check when window gains focus (user returns from booking creation)
     const handleFocus = () => {
       console.log(
-        "Window focused in ReservationTable, checking for new bookings..."
+        "Window focused in ReservationTable, refreshing reservations..."
       );
-      checkForNewBookings();
+      // Reset to first page to see newest bookings
+      setPagination((prev) => ({ ...prev, currentPage: 1 }));
+      fetchReservations();
     };
 
     window.addEventListener("focus", handleFocus);
@@ -87,13 +108,6 @@ const ReservationTable = ({ dateRange, onDateRangeChange }) => {
   // Filter reservations based on date range
   useEffect(() => {
     if (!dateRange || !reservations.length) {
-      setFilteredReservations(reservations);
-      return;
-    }
-
-    // If bypassing date filter (for new booking detection), show all reservations
-    if (bypassDateFilter) {
-      console.log("Bypassing date filter to show all reservations");
       setFilteredReservations(reservations);
       return;
     }
@@ -115,6 +129,12 @@ const ReservationTable = ({ dateRange, onDateRangeChange }) => {
     });
 
     const filtered = reservations.filter((reservation) => {
+      // Always include external bookings (non-Stayhub bookings)
+      if (!reservation.isStayhubBooking) {
+        console.log("Including external booking in filter:", reservation.id);
+        return true;
+      }
+
       const checkIn = new Date(reservation.checkIn);
       const checkOut = new Date(reservation.checkOut);
 
@@ -158,19 +178,6 @@ const ReservationTable = ({ dateRange, onDateRangeChange }) => {
         pagination.pageSize
       );
 
-      // Check for newly created booking in sessionStorage
-      const newBookingData = sessionStorage.getItem("newBookingData");
-      let newBooking = null;
-
-      if (newBookingData) {
-        try {
-          newBooking = JSON.parse(newBookingData);
-          console.log("Found new booking data:", newBooking);
-        } catch (e) {
-          console.error("Error parsing new booking data:", e);
-        }
-      }
-
       console.log("Full API Response:", {
         success: response.success,
         message: response.message,
@@ -197,6 +204,10 @@ const ReservationTable = ({ dateRange, onDateRangeChange }) => {
       }
 
       if (response.success) {
+        console.log("✅ Successfully fetched reservations from API");
+        console.log("Raw response data:", response.data);
+        console.log("Number of reservations:", response.data?.length || 0);
+
         // Transform the data to match the table structure
         const transformedReservations = (response.data || []).map((res) => {
           console.log("Processing reservation:", {
@@ -213,36 +224,77 @@ const ReservationTable = ({ dateRange, onDateRangeChange }) => {
 
           // Handle different possible data structures
           const guestName =
-            res.fname && res.lname
-              ? `${res.fname} ${res.lname}`
-              : res.guestDetails?.firstName && res.guestDetails?.lastName
-              ? `${res.guestDetails.firstName} ${res.guestDetails.lastName}`
-              : "N/A";
+            res.guestName || // Use normalized guestName from server
+            (res.fname && res.lname && `${res.fname} ${res.lname}`) ||
+            (res.firstName &&
+              res.lastName &&
+              `${res.firstName} ${res.lastName}`) ||
+            (res.first_name &&
+              res.last_name &&
+              `${res.first_name} ${res.last_name}`) ||
+            (res.guestDetails?.firstName &&
+              res.guestDetails?.lastName &&
+              `${res.guestDetails.firstName} ${res.guestDetails.lastName}`) ||
+            res.guestDetails?.name ||
+            res.customerName ||
+            res.primaryGuest?.fullName ||
+            res.guest?.name ||
+            "Guest Name";
 
           const checkIn =
-            res.startDate || res.stayDetails?.checkIn || res.checkIn || "N/A";
+            res.checkIn || // Use normalized checkIn from server
+            res.startDate ||
+            res.check_in ||
+            res.stayDetails?.checkIn ||
+            res.propertyDetails?.houseManual?.checkin ||
+            res.property?.propertyDetails?.houseManual?.checkin ||
+            res.bookingFrom ||
+            res.fromDate ||
+            "Check-in Date";
           const checkOut =
-            res.endDate || res.stayDetails?.checkOut || res.checkOut || "N/A";
+            res.checkOut || // Use normalized checkOut from server
+            res.endDate ||
+            res.check_out ||
+            res.stayDetails?.checkOut ||
+            res.propertyDetails?.houseManual?.checkout ||
+            res.property?.propertyDetails?.houseManual?.checkout ||
+            res.bookingTo ||
+            res.toDate ||
+            "Check-out Date";
 
           const title =
+            res.title || // Use normalized title from server
             res.propertyId?.propertyDetails?.stayDetails?.title ||
             res.property?.propertyDetails?.stayDetails?.title ||
             res.propertyDetails?.stayDetails?.title ||
-            "N/A";
+            res.property?.title ||
+            res.propertyDetails?.title ||
+            res.unitTitle ||
+            "Property Title";
 
           const unitNo =
-            res.propertyId?.unitNo || res.property?.unitNo || "N/A";
+            res.unitNo || // Use normalized unitNo from server
+            res.propertyId?.unitNo ||
+            res.property?.unitNo ||
+            res.propertyDetails?.unitNo ||
+            "Unit #";
 
           const isStayhubBooking = !res.channel && !res.secondaryOta;
           const channel = res.channel || res.secondaryOta;
 
           console.log("Reservation row:", res);
 
+          const rowId =
+            res._id ||
+            res.bookingId ||
+            res.id ||
+            `${unitNo}-${checkIn}-${checkOut}-${res.createdAt || Date.now()}`;
+
           return {
-            id: res._id,
+            id: rowId,
             title: title,
             guestName: guestName,
-            bookingId: res.bookingId || res._id || "N/A",
+            bookingId: res.bookingId || res._id || null,
             unitNo: unitNo,
             checkIn: checkIn,
             checkOut: checkOut,
@@ -259,7 +311,12 @@ const ReservationTable = ({ dateRange, onDateRangeChange }) => {
             email: res.email || "N/A",
             notes: res.notes || res.note ? [{ text: res.note }] : [],
             channelIcon: res.channelIcon,
-            createdAt: res.createdAt || res.created_at || res.bookingDate || null,
+            createdAt:
+              res.createdAt ||
+              res.created_at ||
+              res.bookingDate ||
+              checkIn ||
+              null,
           };
         });
 
@@ -268,55 +325,15 @@ const ReservationTable = ({ dateRange, onDateRangeChange }) => {
           firstItem: transformedReservations[0],
         });
 
-        // Add new booking to the beginning of the list if it exists
-        let finalReservations = transformedReservations;
-        if (newBooking) {
-          console.log("Adding new booking to the list");
-          const newBookingTransformed = {
-            id: newBooking.bookingId || newBooking._id || `new-${Date.now()}`,
-            title:
-              newBooking.property?.propertyDetails?.stayDetails?.title ||
-              "New Booking",
-            guestName:
-              newBooking.guestDetails?.firstName &&
-              newBooking.guestDetails?.lastName
-                ? `${newBooking.guestDetails.firstName} ${newBooking.guestDetails.lastName}`
-                : "New Guest",
-            bookingId: newBooking.bookingId || newBooking._id || "New",
-            unitNo: newBooking.property?.unitNo || "New",
-            checkIn: newBooking.stayDetails?.checkIn || "N/A",
-            checkOut: newBooking.stayDetails?.checkOut || "N/A",
-            isStayhubBooking:
-              newBooking.bookingSource === "stayhub" ||
-              !newBooking.bookingSource,
-            secondaryOta: null,
-            isCancelled: false,
-            isCheckinCompleted: false,
-            isPaymentCompleted: newBooking.paymentMethod === "pay_now",
-            propertyDetails: newBooking.property,
-            mobileNumber: newBooking.guestDetails?.mobileNumber || "N/A",
-            phone: "N/A",
-            email: "N/A",
-            notes: newBooking.note ? [{ text: newBooking.note }] : [],
-            isNewBooking: true, // Flag to identify this as a new booking
-            channelIcon: newBooking.channelIcon,
-            createdAt: newBooking.createdAt || newBooking.bookingDate || new Date().toISOString(),
-          };
+        // Sort newest first using createdAt fallback
+        transformedReservations.sort((a, b) => {
+          const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return tb - ta;
+        });
 
-          finalReservations = [
-            newBookingTransformed,
-            ...transformedReservations,
-          ];
-          console.log("Added new booking to reservations list");
-
-          // Clear the new booking data after displaying it
-          setTimeout(() => {
-            sessionStorage.removeItem("newBookingData");
-            console.log("Cleared new booking data from sessionStorage");
-          }, 10000); // Clear after 10 seconds
-        }
-
-        setReservations(finalReservations);
+        setReservations(transformedReservations);
+        setFilteredReservations(transformedReservations); // Also update filtered list
 
         // Update pagination
         const newPagination = {
@@ -430,45 +447,59 @@ const ReservationTable = ({ dateRange, onDateRangeChange }) => {
 
   return (
     <div>
-      {/* Date Range Filter Info */}
-      {dateRange &&
-        (() => {
-          const rangeStart = new Date(dateRange.startDate);
-          const rangeEnd = new Date(dateRange.endDate);
-          const isFiltered = rangeStart.getTime() !== rangeEnd.getTime();
+      {/* Header with Refresh Button */}
+      <div className="mx-2 mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+        <div className="flex items-center justify-between">
+          <div className="text-sm text-gray-800">
+            <span className="font-semibold">Reservations</span>
+            <span className="ml-2 text-gray-600">
+              ({filteredReservations.length} reservations found)
+            </span>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                console.log("Manual refresh requested");
+                setPagination((prev) => ({ ...prev, currentPage: 1 }));
+                // Force a complete refresh by clearing any cached data
+                setReservations([]);
+                setFilteredReservations([]);
+                setLoading(true);
+                setTimeout(() => {
+                  fetchReservations();
+                }, 100);
+              }}
+              className="text-[#25A4E8] cursor-pointer hover:text-blue-800 text-sm underline"
+            >
+              Refresh
+            </button>
+            {dateRange &&
+              (() => {
+                const rangeStart = new Date(dateRange.startDate);
+                const rangeEnd = new Date(dateRange.endDate);
+                const isFiltered = rangeStart.getTime() !== rangeEnd.getTime();
 
-          return isFiltered ? (
-            <div className="mx-2 mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-              <div className="flex items-center justify-between">
-                <div className="text-sm text-blue-800">
-                  <span className="font-semibold">
-                    Filtered by date range:{" "}
-                  </span>
-                  {format(rangeStart, "MMM dd, yyyy")} -{" "}
-                  {format(rangeEnd, "MMM dd, yyyy")}
-                  <span className="ml-2 text-blue-600">
-                    ({filteredReservations.length} reservations found)
-                  </span>
-                </div>
-                <button
-                  onClick={() => {
-                    if (onDateRangeChange) {
-                      const today = new Date();
-                      onDateRangeChange({
-                        startDate: today,
-                        endDate: today,
-                        key: "selection",
-                      });
-                    }
-                  }}
-                  className="text-[#25A4E8] cursor-pointer hover:text-blue-800 text-sm underline"
-                >
-                  Clear Filter
-                </button>
-              </div>
-            </div>
-          ) : null;
-        })()}
+                return isFiltered ? (
+                  <button
+                    onClick={() => {
+                      if (onDateRangeChange) {
+                        const today = new Date();
+                        onDateRangeChange({
+                          startDate: today,
+                          endDate: today,
+                          key: "selection",
+                        });
+                      }
+                    }}
+                    className="text-[#25A4E8] cursor-pointer hover:text-blue-800 text-sm underline"
+                  >
+                    Clear Filter
+                  </button>
+                ) : null;
+              })()}
+          </div>
+        </div>
+      </div>
 
       <div className="rounded-lg border border-gray-200 mx-2 flex flex-col">
         <div className="overflow-x-auto flex-1">
@@ -527,12 +558,14 @@ const ReservationTable = ({ dateRange, onDateRangeChange }) => {
               ) : (
                 filteredReservations.map((res) => (
                   <tr
-                    key={res.id}
+                    key={`${res.id}-${
+                      res.createdAt || res.checkIn || res.checkOut || ""
+                    }`}
                     className="hover:bg-gray-50 cursor-pointer"
                     onClick={() => setSelectedReservation(res)}
                   >
                     <td className="px-1 py-2 text-[12px] text-center break-all whitespace-nowrap">
-                      {res.title}
+                      {res.title || "-"}
                     </td>
                     <td className="px-1 py-2 text-center whitespace-nowrap">
                       <div className="flex justify-center items-center gap-2">
@@ -568,16 +601,34 @@ const ReservationTable = ({ dateRange, onDateRangeChange }) => {
                       {res.bookingId}
                     </td>
                     <td className="px-1 py-2 text-[12px] text-center break-all whitespace-nowrap">
-                      {res.unitNo}
+                      {res.unitNo || "-"}
                     </td>
                     <td className="px-1 py-2 text-center whitespace-nowrap text-xs">
                       {res.checkIn
-                        ? format(new Date(res.checkIn), "d-MMM-yyyy")
+                        ? (() => {
+                            try {
+                              return format(
+                                new Date(res.checkIn),
+                                "d-MMM-yyyy"
+                              );
+                            } catch {
+                              return "-";
+                            }
+                          })()
                         : "-"}
                     </td>
                     <td className="px-1 py-2 text-center whitespace-nowrap text-xs">
                       {res.checkOut
-                        ? format(new Date(res.checkOut), "d-MMM-yyyy")
+                        ? (() => {
+                            try {
+                              return format(
+                                new Date(res.checkOut),
+                                "d-MMM-yyyy"
+                              );
+                            } catch {
+                              return "-";
+                            }
+                          })()
                         : "-"}
                     </td>
                     <td className="px-1 py-2 text-[12px] text-center whitespace-nowrap">

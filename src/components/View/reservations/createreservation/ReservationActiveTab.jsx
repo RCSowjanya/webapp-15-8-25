@@ -5,9 +5,10 @@ import { DateRange } from "react-date-range";
 import { format } from "date-fns";
 import "react-date-range/dist/styles.css";
 import "react-date-range/dist/theme/default.css";
-import { getRatePlan } from "../../../Models/reservations/RatePlanModel";
 import { createBooking } from "../../../Models/reservations/BookingModel";
 import { toast } from "react-toastify";
+import { checkRatePlanAction } from "@/app/(dashboard-screens)/actions/ratePlanActions";
+import { useActionState } from "react";
 
 const ReservationActiveTab = ({
   property,
@@ -104,12 +105,52 @@ const ReservationActiveTab = ({
     setTempDateRange(ranges.selection);
   };
 
-  // Handle apply button click
+  // Server action state for rate plan
+  const [rateState, formAction] = useActionState(checkRatePlanAction, null);
+
+  // Handle apply button click via server action form submit
   const handleApplyDates = async () => {
-    if (tempDateRange) {
-      await handleDateRangeChange({ selection: tempDateRange });
+    if (!tempDateRange) return;
+    setIsLoading(true);
+
+    const startDate = new Date(tempDateRange.startDate);
+    const endDate = new Date(tempDateRange.endDate);
+    startDate.setHours(0, 0, 0, 0);
+    endDate.setHours(0, 0, 0, 0);
+
+    const formatDateForAPI = (date) => {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, "0");
+      const d = String(date.getDate()).padStart(2, "0");
+      return `${y}-${m}-${d}T00:00:00.000+00:00`;
+    };
+
+    const fd = new FormData();
+    fd.set("startDate", formatDateForAPI(startDate));
+    fd.set("endDate", formatDateForAPI(endDate));
+    fd.set("propertyId", property?._id || "");
+
+    const result = await checkRatePlanAction(null, fd);
+    if (result?.success && result?.data) {
+      setRateData(result.data);
+      setDateRange(tempDateRange);
       setShowDatePicker(false);
+      if (onBookingDataChange && bookingData) {
+        onBookingDataChange({
+          ...bookingData,
+          stayDetails: {
+            ...bookingData.stayDetails,
+            checkIn: startDate,
+            checkOut: endDate,
+            nights: result.data.stayingDurationNight,
+          },
+        });
+      }
+    } else {
+      toast.error(result?.message || "Selected dates are not available.");
     }
+
+    setIsLoading(false);
   };
 
   // Calculate nights
@@ -148,24 +189,33 @@ const ReservationActiveTab = ({
     }
 
     try {
-      // Format dates to API expected format: "2025-06-11T00:00:00.000+00:00"
+      // Format dates to API expected format: "2025-06-11" (simpler format)
       const formatDateForAPI = (date) => {
         const year = date.getFullYear();
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const day = String(date.getDate()).padStart(2, '0');
-        return `${year}-${month}-${day}T00:00:00.000+00:00`;
+        const month = String(date.getMonth() + 1).padStart(2, "0");
+        const day = String(date.getDate()).padStart(2, "0");
+        return `${year}-${month}-${day}`;
       };
 
       const ratePlanParams = {
         startDate: formatDateForAPI(startDate),
         endDate: formatDateForAPI(endDate),
-        propertyId: property._id,
+        propertyId: property._id?.toString() || property._id,
       };
 
       console.log("Rate Plan Parameters:", ratePlanParams);
 
-      const response = await getRatePlan(ratePlanParams);
-      console.log("Rate plan API response:", response);
+      const fd = new FormData();
+      fd.set("startDate", ratePlanParams.startDate);
+      fd.set("endDate", ratePlanParams.endDate);
+      fd.set("propertyId", ratePlanParams.propertyId);
+      const response = await checkRatePlanAction(null, fd);
+
+      if (!response || typeof response !== "object") {
+        toast.error("Unable to fetch rates. Please try again.");
+        setIsLoading(false);
+        return;
+      }
 
       // Helper function to check for isBlocked anywhere in the response
       function hasBlockedFlag(resp) {
@@ -220,19 +270,27 @@ const ReservationActiveTab = ({
         }
       } else {
         console.error("Rate Plan Error Response:", response);
-        toast.error(
-          response.message ||
-            "Selected dates are not available. Please choose different dates."
-        );
-        resetDateRange();
+        const errorMessage =
+          response?.message ||
+          "Selected dates are not available. Please choose different dates.";
+        toast.error(errorMessage);
+
+        // If dates are not available, reset the date range to prevent booking submission
+        if (
+          errorMessage.includes("already booked") ||
+          errorMessage.includes("not available")
+        ) {
+          resetDateRange();
+        }
+        // Keep current selection so user can adjust without losing input
       }
     } catch (error) {
       console.error("Rate Plan Error:", error);
       toast.error(
-        error.message ||
+        error?.message ||
           "An error occurred while fetching rates. Please try again."
       );
-      resetDateRange();
+      // Keep current selection so user can adjust without losing input
     } finally {
       setIsLoading(false);
     }
@@ -352,6 +410,25 @@ const ReservationActiveTab = ({
       return;
     }
 
+    // Additional validation: check if the selected dates are still valid
+    if (!dateRange.startDate || !dateRange.endDate) {
+      toast.error("Please select valid dates for your stay");
+      return;
+    }
+
+    // Check if dates are in the past
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (dateRange.startDate < today) {
+      toast.error("Check-in date cannot be in the past");
+      return;
+    }
+
+    if (dateRange.endDate <= dateRange.startDate) {
+      toast.error("Check-out date must be after check-in date");
+      return;
+    }
+
     setIsBookingLoading(true);
 
     try {
@@ -370,35 +447,44 @@ const ReservationActiveTab = ({
         stayDetails: {
           checkIn: format(dateRange.startDate, "yyyy-MM-dd"),
           checkOut: format(dateRange.endDate, "yyyy-MM-dd"),
-          nights: pricing.nights,
+          nights: rateData.stayingDurationNight || 1,
         },
         pricing: {
-          total: pricing.total,
-          subtotal: pricing.subtotal,
-          discount: pricing.discount,
-          platformFee: pricing.platformFee,
-          vat: pricing.vat,
-          totalRate: pricing.totalRate,
-          discountedRate: pricing.discountedRate,
-          stayingDurationPrice: pricing.stayingDurationPrice,
-          breakDownWithOtaCommission: pricing.breakDownWithOtaCommission,
-          discountDetails: pricing.discountDetails,
-          dateWiseRates: pricing.dateWiseRates,
+          total: rateData.totalRate || 0,
+          subtotal: rateData.totalRate || 0,
+          discount: rateData.discountedRate || 0,
+          platformFee: rateData.serviceFee || 0,
+          vat: rateData.vat || 0,
+          totalRate: rateData.totalRate || 0,
+          discountedRate: rateData.discountedRate || 0,
+          stayingDurationPrice: rateData.stayingDurationPrice || 0,
+          breakDownWithOtaCommission: rateData.breakDownWithOtaCommission || 0,
+          discountDetails: rateData.discountDetails || {},
+          dateWiseRates: rateData.rates || [],
         },
         note: formData.note.trim(),
         paymentMethod: paymentMethod,
         isStayhubBooking: true,
+        isPmBooking: true,
       };
 
       console.log("Submitting booking with data:", bookingData);
 
       const response = await createBooking(bookingData);
       console.log("Booking API response:", response);
+      console.log("Response structure:", {
+        success: response?.success,
+        data: response?.data,
+        message: response?.message,
+        hasData: !!response?.data,
+        dataKeys: response?.data ? Object.keys(response.data) : [],
+      });
+
       if (response.success) {
         // Create a more descriptive success message with dates
         const checkInDate = format(dateRange.startDate, "MMM dd, yyyy");
         const checkOutDate = format(dateRange.endDate, "MMM dd, yyyy");
-        const successMessage = `You have successfully created a reservation for ${checkInDate} to ${checkOutDate}!`;
+        const successMessage = `You have successfully created a reservation for ${checkInDate} to ${checkOutDate}! Redirecting to reservations...`;
 
         toast.success(successMessage);
 
@@ -413,34 +499,70 @@ const ReservationActiveTab = ({
           onBookingDataChange(updatedBookingData);
         }
 
-        // Store the new booking data in sessionStorage for immediate display
-        const newBookingData = {
-          ...bookingData,
-          bookingId: response.data?.bookingId || response.data?._id,
-          status: "confirmed",
-          createdAt: new Date().toISOString(),
-          bookingSource: "stayhub", // Mark as Stayhub booking
-        };
-        sessionStorage.setItem(
-          "newBookingData",
-          JSON.stringify(newBookingData)
-        );
-        console.log(
-          "Stored new booking data in sessionStorage:",
-          newBookingData
-        );
-
         // Call the refresh callback to update reservations list
         if (onBookingSuccess) {
           onBookingSuccess(response.data);
         }
 
-        // You can add navigation or other success actions here
-        console.log("Booking successful:", response.data);
+        // Store a flag in localStorage to indicate new booking was created
+        try {
+          const bookingId =
+            response.data?.bookingId || response.data?._id || response.data?.id;
+          console.log("Extracted booking ID:", bookingId);
+
+          if (bookingId) {
+            localStorage.setItem("newBookingCreated", "true");
+            localStorage.setItem(
+              "newBookingData",
+              JSON.stringify({
+                bookingId: bookingId,
+                checkIn: format(dateRange.startDate, "yyyy-MM-dd"),
+                checkOut: format(dateRange.endDate, "yyyy-MM-dd"),
+                guestName: `${formData.firstName} ${formData.lastName}`,
+                propertyTitle: property?.title || "Property",
+                unitNo: property?.unitNo || "Unit #",
+                createdAt: new Date().toISOString(),
+              })
+            );
+            console.log("✅ Stored new booking flag in localStorage");
+          } else {
+            console.warn(
+              "⚠️ No booking ID found in response, cannot store flag"
+            );
+          }
+        } catch (error) {
+          console.error("Failed to store booking flag:", error);
+        }
+
+        // Navigate back to reservations with refresh flag to load persisted data from server
+        setTimeout(() => {
+          try {
+            console.log("Redirecting to reservations with refresh flag...");
+            // Add a timestamp to force a fresh load
+            const timestamp = Date.now();
+            window.location.href = `/reservations?refresh=true&new=1&t=${timestamp}`;
+          } catch (error) {
+            console.error("Navigation error:", error);
+            // Fallback: try to navigate without refresh flag
+            try {
+              window.location.href = "/reservations";
+            } catch (fallbackError) {
+              console.error("Fallback navigation also failed:", fallbackError);
+            }
+          }
+        }, 1500); // Give user time to see the success message
       } else {
-        toast.error(
-          response.message || "Failed to create booking. Please try again."
-        );
+        // Handle specific error cases
+        if (response.errorType === "dates_unavailable") {
+          toast.error(response.message);
+          // Reset date range for unavailable dates
+          resetDateRange();
+          setRateData(null); // Clear rate data so user can't submit
+        } else {
+          toast.error(
+            response.message || "Failed to create booking. Please try again."
+          );
+        }
       }
     } catch (error) {
       console.error("Booking submission error:", error);
@@ -783,14 +905,14 @@ const ReservationActiveTab = ({
           <div className="bg-white border border-gray-200 rounded-md p-2 flex gap-2">
             <button
               onClick={() => handleBookingSubmit("pay_now")}
-              disabled={isBookingLoading}
+              disabled={isBookingLoading || !rateData}
               className="w-full cursor-pointer bg-[#2694D0] text-white text-sm font-medium rounded-md py-2 hover:bg-[#1f7bb8] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isBookingLoading ? "Processing..." : "Pay Now"}
             </button>
             <button
               onClick={() => handleBookingSubmit("pay_later")}
-              disabled={isBookingLoading}
+              disabled={isBookingLoading || !rateData}
               className="w-full cursor-pointer bg-white border border-[#2694D0] text-[#2694D0] text-sm font-medium rounded-md py-2 hover:bg-[#f0f8ff] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isBookingLoading ? "Processing..." : "Pay Later"}

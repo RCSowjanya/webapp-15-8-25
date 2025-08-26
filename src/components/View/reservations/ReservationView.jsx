@@ -13,7 +13,7 @@ import "react-date-range/dist/theme/default.css";
 import ReservationTable from "./ReservationTable";
 import ReservationModel from "../../Models/reservations/ReservationModel";
 
-const ReservationView = () => {
+const ReservationView = ({ initialReservations = [], initialPagination }) => {
   const [showPicker, setShowPicker] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
   const [state, setState] = useState([
@@ -25,11 +25,13 @@ const ReservationView = () => {
   ]);
   const [tempState, setTempState] = useState(state);
   const calendarRef = useRef();
-  const [pagination, setPagination] = useState({
-    currentPage: 1,
-    totalPage: 1,
-    pageSize: 10,
-  });
+  const [pagination, setPagination] = useState(
+    initialPagination || {
+      currentPage: 1,
+      totalPage: 1,
+      pageSize: 10,
+    }
+  );
 
   // Click outside to close
   useEffect(() => {
@@ -194,6 +196,8 @@ const ReservationView = () => {
             key: "selection",
           }}
           onDateRangeChange={(newRange) => setState([newRange])}
+          initialReservations={initialReservations}
+          initialPagination={initialPagination}
         />
 
         {/* <div className="flex justify-end gap-2 mt-4">

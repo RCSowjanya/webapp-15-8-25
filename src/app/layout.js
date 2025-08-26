@@ -16,7 +16,7 @@ const inter = Inter({
 });
 
 export const metadata = {
-  title: "Stayhub App",
+  title: "App",
   description: "Host Application",
 };
 

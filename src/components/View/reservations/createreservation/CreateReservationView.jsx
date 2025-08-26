@@ -5,14 +5,14 @@ import { BsFillFilterSquareFill } from "react-icons/bs";
 import { IoMdArrowDropdown } from "react-icons/io";
 import { format } from "date-fns";
 import FilterPanel from "./FilterPanel";
-import { fetchActiveProperties } from "../../../Models/properties/PropertyModel";
+
 import { useRouter } from "next/navigation";
 
-const CreateReservationView = () => {
+const CreateReservationView = ({ token, initialProperties = [] }) => {
   const [searchTerm, setSearchTerm] = useState("");
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
-  const [properties, setProperties] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [properties, setProperties] = useState(initialProperties);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [filteredProperties, setFilteredProperties] = useState([]);
 
@@ -32,33 +32,11 @@ const CreateReservationView = () => {
   const router = useRouter();
 
   useEffect(() => {
-    const loadProperties = async () => {
-      try {
-        console.log("Loading properties...");
-        setLoading(true);
-        setError(null);
-
-        const response = await fetchActiveProperties();
-        console.log("Properties response:", response);
-
-        if (response.success) {
-          setProperties(response.data);
-          setFilteredProperties(response.data);
-          console.log(`Loaded ${response.data.length} properties successfully`);
-        } else {
-          setError(response.message);
-          console.error("Failed to load properties:", response.message);
-        }
-      } catch (error) {
-        console.error("Error loading properties:", error);
-        setError(error.message || "Failed to load properties");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadProperties();
-  }, []);
+    setProperties(initialProperties || []);
+    setFilteredProperties(initialProperties || []);
+    setLoading(false);
+    setError(null);
+  }, [initialProperties]);
 
   // Filter properties based on search term
   const handleSearch = (term) => {

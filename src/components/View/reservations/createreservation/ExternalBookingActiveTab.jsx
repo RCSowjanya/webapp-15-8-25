@@ -221,15 +221,35 @@ const ExternalBookingActiveTab = ({
         }
       } else {
         console.error("Rate plan fetch failed:", response.message);
-        toast.error(
-          response.message || "Failed to fetch pricing. Please try again."
-        );
-        resetDateRange();
+
+        // Handle specific error types
+        if (response.errorType === "dates_unavailable") {
+          toast.error(
+            "Selected dates are not available. This property is already booked for the chosen dates. Please select different dates."
+          );
+          resetDateRange();
+          setRateData(null); // Clear rate data
+        } else {
+          toast.error(
+            response.message || "Failed to fetch pricing. Please try again."
+          );
+          resetDateRange();
+        }
       }
     } catch (error) {
       console.error("Error fetching rate plan:", error);
-      toast.error("Failed to fetch pricing. Please try again.");
-      resetDateRange();
+
+      // Handle specific error messages
+      if (error.message && error.message.includes("unavailable")) {
+        toast.error(
+          "Selected dates are not available. This property is already booked for the chosen dates. Please select different dates."
+        );
+        resetDateRange();
+        setRateData(null); // Clear rate data
+      } else {
+        toast.error("Failed to fetch pricing. Please try again.");
+        resetDateRange();
+      }
     } finally {
       setIsLoading(false);
     }
@@ -411,7 +431,7 @@ const ExternalBookingActiveTab = ({
         // Create a more descriptive success message with dates
         const checkInDate = format(dateRange.startDate, "MMM dd, yyyy");
         const checkOutDate = format(dateRange.endDate, "MMM dd, yyyy");
-        const successMessage = `You have successfully created an external reservation for ${checkInDate} to ${checkOutDate} via ${selectedSource.name}!`;
+        const successMessage = `You have successfully created an external reservation for ${checkInDate} to ${checkOutDate} via ${selectedSource.name}! Redirecting to reservations...`;
 
         toast.success(successMessage);
 
@@ -426,31 +446,59 @@ const ExternalBookingActiveTab = ({
           onBookingDataChange(updatedBookingData);
         }
 
-        // Store the new booking data in sessionStorage for immediate display
-        const newBookingData = {
-          ...bookingData,
-          bookingId: response.data?.bookingId || response.data?._id,
-          status: "confirmed",
-          createdAt: new Date().toISOString(),
-          bookingSource: selectedSource.name.toLowerCase(), // Mark as external booking
-          channel: selectedSource.name, // For reservation table display
-          channelIcon: selected ? selected.img : null, // Store the icon path
-        };
-        sessionStorage.setItem(
-          "newBookingData",
-          JSON.stringify(newBookingData)
-        );
-        console.log(
-          "Stored new external booking data in sessionStorage:",
-          newBookingData
-        );
-
         // Call the refresh callback to update reservations list
         if (onBookingSuccess) {
           onBookingSuccess(response.data);
         }
 
-        console.log("External booking successful:", response.data);
+        // Store a flag in localStorage to indicate new external booking was created
+        try {
+          const bookingId =
+            response.data?.bookingId || response.data?._id || response.data?.id;
+          console.log("Extracted external booking ID:", bookingId);
+
+          if (bookingId) {
+            localStorage.setItem("newBookingCreated", "true");
+            localStorage.setItem(
+              "newExternalBookingData",
+              JSON.stringify({
+                bookingId: bookingId,
+                checkIn: format(dateRange.startDate, "yyyy-MM-dd"),
+                checkOut: format(dateRange.endDate, "yyyy-MM-dd"),
+                guestName: `${formData.firstName} ${formData.lastName}`,
+                propertyTitle: property?.title || "Property",
+                unitNo: property?.unitNo || "Unit #",
+                channel: selectedSource.name,
+                createdAt: new Date().toISOString(),
+              })
+            );
+            console.log("✅ Stored new external booking flag in localStorage");
+          } else {
+            console.warn(
+              "⚠️ No external booking ID found in response, cannot store flag"
+            );
+          }
+        } catch (error) {
+          console.error("Failed to store external booking flag:", error);
+        }
+
+        // Navigate back to reservations with refresh flag to load persisted data from server
+        setTimeout(() => {
+          try {
+            console.log("Redirecting to reservations with refresh flag...");
+            // Add a timestamp to force a fresh load
+            const timestamp = Date.now();
+            window.location.href = `/reservations?refresh=true&t=${timestamp}`;
+          } catch (error) {
+            console.error("Navigation error:", error);
+            // Fallback: try to navigate without refresh flag
+            try {
+              window.location.href = "/reservations";
+            } catch (fallbackError) {
+              console.error("Fallback navigation also failed:", fallbackError);
+            }
+          }
+        }, 1500); // Give user time to see the success message
       } else {
         toast.error(
           response.message ||

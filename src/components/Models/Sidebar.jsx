@@ -33,12 +33,10 @@ const Sidebar = ({ isOpen, onClose }) => {
     // Special case for reservations - match all reservation-related paths
     if (
       href === "/availability" &&
-      (
-        pathname === "/reservations" ||
+      (pathname === "/reservations" ||
         pathname === "/create-reservation" ||
         pathname === "/create-reservation-view" ||
-        pathname.startsWith("/create-reservation/")
-      )
+        pathname.startsWith("/create-reservation/"))
     ) {
       return true;
     }
@@ -54,35 +52,35 @@ const Sidebar = ({ isOpen, onClose }) => {
     <>
       {/* Mobile Overlay */}
       {isOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/20 backdrop-blur-sm z-[60] lg:hidden"
           onClick={onClose}
         />
       )}
 
       {/* Sidebar */}
-      <div 
+      <div
         className={`fixed lg:static top-0 left-0 h-screen w-60 bg-[#F4F2FD] border-r border-[#DAD3F8] z-[99] transform transition-transform duration-300 ease-in-out flex flex-col ${
-          isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+          isOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         }`}
       >
         <div className="flex justify-between items-center py-4 px-4 lg:hidden">
-          <img
+          {/*<img
             src="/images/stayhub-logo.svg"
             alt="stayhub-Logo"
             className="w-32 h-auto"
-          />
+          />*/}
           <button onClick={onClose} className="lg:hidden">
             <IoMdClose className="w-6 h-6 text-gray-600" />
           </button>
         </div>
 
         <div className="hidden lg:flex justify-center pt-2 pb-9">
-          <img
+          {/* <img
             src="/images/logo.svg"
             alt="stayhub-Logo"
             className="w-44 h-full"
-          />
+          />*/}
         </div>
 
         {/* Navigation */}
@@ -141,7 +139,7 @@ const Sidebar = ({ isOpen, onClose }) => {
       </div>
 
       {/* Logout Modal */}
-      <LogoutModal 
+      <LogoutModal
         isOpen={showLogoutModal}
         onClose={() => setShowLogoutModal(false)}
       />

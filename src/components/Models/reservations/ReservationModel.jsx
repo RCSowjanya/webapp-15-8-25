@@ -1,6 +1,7 @@
 "use server";
 
 import api from "@/utils/apiService";
+import { fetchPropertyById } from "../properties/PropertyModel";
 import { auth } from "@/app/(dashboard-screens)/auth";
 
 const ReservationModel = async (page = 1, pageSize = 10) => {
@@ -67,11 +68,111 @@ const ReservationModel = async (page = 1, pageSize = 10) => {
           checkout: firstReservation.propertyDetails?.houseManual?.checkout,
         });
 
+        // Normalize and enrich minimally to ensure UI fields are present
+        const bookings = apiData.data;
+        const enriched = await Promise.all(
+          bookings.map(async (b) => {
+            // Extract guest name from multiple possible fields
+            const guestName =
+              (b?.fname && b?.lname ? `${b.fname} ${b.lname}` : null) ||
+              (b?.firstName && b?.lastName
+                ? `${b.firstName} ${b.lastName}`
+                : null) ||
+              (b?.first_name && b?.last_name
+                ? `${b.first_name} ${b.last_name}`
+                : null) ||
+              (b?.guestDetails?.firstName && b?.guestDetails?.lastName
+                ? `${b.guestDetails.firstName} ${b.guestDetails.lastName}`
+                : null) ||
+              b?.guestDetails?.name ||
+              b?.customerName ||
+              b?.primaryGuest?.fullName ||
+              b?.guest?.name ||
+              "N/A";
+
+            let title =
+              b?.propertyId?.propertyDetails?.stayDetails?.title ||
+              b?.property?.propertyDetails?.stayDetails?.title ||
+              b?.propertyDetails?.stayDetails?.title ||
+              b?.property?.title ||
+              b?.propertyDetails?.title ||
+              b?.unitTitle ||
+              null;
+
+            let unitNo =
+              b?.propertyId?.unitNo ||
+              b?.property?.unitNo ||
+              b?.propertyDetails?.unitNo ||
+              b?.unitNo ||
+              null;
+
+            // If missing title/unit, fetch property details by id when available
+            const pid =
+              typeof b?.propertyId === "string"
+                ? b.propertyId
+                : b?.propertyId?._id;
+            if ((!title || !unitNo) && pid) {
+              try {
+                const propResp = await fetchPropertyById(pid);
+                const prop = propResp?.data || propResp?.data?.data || null;
+                title =
+                  title ||
+                  prop?.propertyDetails?.stayDetails?.title ||
+                  prop?.title ||
+                  null;
+                unitNo = unitNo || prop?.unitNo || null;
+              } catch (e) {
+                // ignore enrichment errors
+              }
+            }
+
+            const checkIn =
+              b?.startDate ||
+              b?.checkIn ||
+              b?.check_in ||
+              b?.stayDetails?.checkIn ||
+              b?.propertyDetails?.houseManual?.checkin ||
+              b?.property?.propertyDetails?.houseManual?.checkin ||
+              b?.bookingFrom ||
+              b?.fromDate ||
+              null;
+
+            const checkOut =
+              b?.endDate ||
+              b?.checkOut ||
+              b?.check_out ||
+              b?.stayDetails?.checkOut ||
+              b?.propertyDetails?.houseManual?.checkout ||
+              b?.property?.propertyDetails?.houseManual?.checkout ||
+              b?.bookingTo ||
+              b?.toDate ||
+              null;
+
+            const createdAt =
+              b?.createdAt ||
+              b?.created_at ||
+              b?.bookingDate ||
+              checkIn ||
+              new Date().toISOString();
+
+            return {
+              ...b,
+              __normalized: true,
+              title: title || "Property Title",
+              unitNo: unitNo || "Unit #",
+              checkIn,
+              checkOut,
+              guestName,
+              createdAt,
+            };
+          })
+        );
+
         return {
           success: true,
-          data: apiData.data,
+          data: enriched,
           pagination: {
-            totalData: apiData.total_data || apiData.data.length,
+            totalData: apiData.total_data || bookings.length,
             totalPage: apiData.total_page || 1,
             currentPage: apiData.page || page,
             pageSize: apiData.pageSize || pageSize,
@@ -138,13 +239,26 @@ export const createBooking = async (bookingData) => {
         message: response.data.message || "Booking created successfully!",
       };
     } else {
-      console.error("Create Booking API Failed:", response?.data?.message);
+      const errorMessage =
+        response?.data?.message ||
+        response?.message ||
+        "Failed to create booking. Please try again.";
+      console.error("Create Booking API Failed:", errorMessage);
+
+      // Check for specific error cases
+      if (errorMessage.includes("already booked")) {
+        return {
+          success: false,
+          message:
+            "The selected dates are not available. This property is already booked for the chosen dates. Please select different dates.",
+          errorType: "dates_unavailable",
+        };
+      }
+
       return {
         success: false,
-        message:
-          response?.data?.message ||
-          response?.message ||
-          "Failed to create booking. Please try again.",
+        message: errorMessage,
+        errorType: "general_error",
       };
     }
   } catch (error) {
