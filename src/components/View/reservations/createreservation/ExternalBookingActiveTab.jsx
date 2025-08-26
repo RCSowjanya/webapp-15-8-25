@@ -129,6 +129,22 @@ const ExternalBookingActiveTab = ({
   // Handle apply button click
   const handleApplyDates = async () => {
     if (tempDateRange) {
+      // Validate the temporary date range before applying
+      const startDate = new Date(tempDateRange.startDate);
+      const endDate = new Date(tempDateRange.endDate);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      if (startDate < today) {
+        toast.error("Check-in date cannot be in the past. Please select a future date.");
+        return;
+      }
+
+      if (startDate >= endDate) {
+        toast.error("Check-out date must be after check-in date.");
+        return;
+      }
+      
       await handleDateRangeChange({ selection: tempDateRange });
       setShowDatePicker(false);
     }
@@ -141,6 +157,8 @@ const ExternalBookingActiveTab = ({
     return Math.max(1, Math.ceil(timeDiff / (1000 * 3600 * 24)));
   };
 
+
+
   // Handle date range change
   const handleDateRangeChange = async (ranges) => {
     const newRange = ranges.selection;
@@ -152,6 +170,24 @@ const ExternalBookingActiveTab = ({
     startDate.setHours(0, 0, 0, 0);
     const endDate = new Date(newRange.endDate);
     endDate.setHours(0, 0, 0, 0);
+
+    // Validate dates before making API call
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (startDate < today) {
+      toast.error("Check-in date cannot be in the past. Please select a future date.");
+      resetDateRange();
+      setIsLoading(false);
+      return;
+    }
+
+    if (startDate >= endDate) {
+      toast.error("Check-out date must be after check-in date.");
+      resetDateRange();
+      setIsLoading(false);
+      return;
+    }
 
     console.log("Selected dates:", {
       startDate: startDate.toISOString(),
@@ -180,10 +216,12 @@ const ExternalBookingActiveTab = ({
 
       const response = await getRatePlan(ratePlanParams);
 
-      console.log("Rate Plan Response:", response);
+            console.log("Rate Plan Response:", response);
 
-      // Check if response is successful
-      if (response.success && response.data) {
+      // Check if response is successful - handle both response structures
+      if (response?.success && (response?.data || response?.data?.data)) {
+        const rateData = response.data?.data || response.data;
+        
         if (response.isBlocked) {
           toast.error(
             "These dates are blocked due to some reason, please select another date."
@@ -192,7 +230,7 @@ const ExternalBookingActiveTab = ({
           setIsLoading(false);
           return;
         }
-        const rateData = response.data;
+        
         console.log("Rate Data:", rateData);
         setRateData(rateData);
 
@@ -220,19 +258,27 @@ const ExternalBookingActiveTab = ({
           onBookingDataChange(updatedBookingData);
         }
       } else {
-        console.error("Rate plan fetch failed:", response.message);
+        // Handle unsuccessful response
+        const errorMessage = response?.message || "Failed to fetch pricing. Please try again.";
+        console.error("Rate plan fetch failed:", errorMessage);
 
         // Handle specific error types
-        if (response.errorType === "dates_unavailable") {
+        if (response?.errorType === "dates_unavailable") {
           toast.error(
             "Selected dates are not available. This property is already booked for the chosen dates. Please select different dates."
           );
           resetDateRange();
           setRateData(null); // Clear rate data
-        } else {
+        } else if (response?.message?.includes("already booked") || 
+                   response?.message?.includes("not available") ||
+                   response?.message?.includes("unavailable")) {
           toast.error(
-            response.message || "Failed to fetch pricing. Please try again."
+            "Selected dates are not available. This property is already booked for the chosen dates. Please select different dates."
           );
+          resetDateRange();
+          setRateData(null);
+        } else {
+          toast.error(errorMessage);
           resetDateRange();
         }
       }
@@ -246,6 +292,23 @@ const ExternalBookingActiveTab = ({
         );
         resetDateRange();
         setRateData(null); // Clear rate data
+      } else if (error.message && error.message.includes("401")) {
+        toast.error("Please login to check room availability.");
+        resetDateRange();
+      } else if (error.message && error.message.includes("404")) {
+        toast.error("Property not found. Please refresh the page.");
+        resetDateRange();
+      } else if (error.message && error.message.includes("409")) {
+        toast.error("Selected dates are already booked. Please choose different dates.");
+        resetDateRange();
+        setRateData(null);
+      } else if (error.message && error.message.includes("Failed to fetch") || 
+                 error.message && error.message.includes("NetworkError")) {
+        toast.error("Network error. Please check your connection and try again.");
+        resetDateRange();
+      } else if (error.message && error.message.includes("timeout")) {
+        toast.error("Request timed out. Please try again.");
+        resetDateRange();
       } else {
         toast.error("Failed to fetch pricing. Please try again.");
         resetDateRange();
@@ -420,6 +483,7 @@ const ExternalBookingActiveTab = ({
         paymentMethod: paymentMethod,
         channel: selectedSource.name,
         bookingSource: selectedSource.name.toLowerCase(), // for extra compatibility
+        isPmBooking: true,
       };
 
       console.log("Submitting external booking with data:", bookingData);
@@ -564,9 +628,12 @@ const ExternalBookingActiveTab = ({
                 />
                 {isLoading && (
                   <div className="p-3 text-center">
-                    <span className="text-sm text-gray-500">
-                      Checking availability...
-                    </span>
+                    <div className="flex items-center justify-center space-x-2">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-[#25A4E8]"></div>
+                      <span className="text-sm text-gray-500">
+                        Checking availability and rates...
+                      </span>
+                    </div>
                   </div>
                 )}
                 <div className="p-3 border-t border-gray-200">
@@ -583,6 +650,8 @@ const ExternalBookingActiveTab = ({
 
             {/* Full-width bottom border */}
             <div className="border-t border-gray-200" />
+
+
 
             {/* Number of nights */}
             <div className="p-2">

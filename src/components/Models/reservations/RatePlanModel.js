@@ -1,6 +1,5 @@
 "use server";
 
-import api from "@/utils/apiService";
 import { auth } from "@/app/(dashboard-screens)/auth";
 
 /**
@@ -62,13 +61,60 @@ export const getRatePlan = async (params) => {
       isPmBooking: true,
     };
 
-    const response = await api.post("/property/rate", requestBody, {
-      authorizationHeader: `Bearer ${token}`,
-      showErrorToast: false, // Handle toast in the component
-      errorMessage: "Failed to fetch rate plan.",
+    console.log("Making direct request to backend:", requestBody);
+
+    // Get backend URL from environment or use default
+    const backendUrl = process.env.BACKEND_URL || 'https://api.stayhub.sa';
+    const fullUrl = `${backendUrl}/stayhub/property/rate`;
+    
+    console.log("Backend URL:", fullUrl);
+    console.log("Token present:", !!token);
+
+    // Make direct request to backend since this is a server action
+    const backendResponse = await fetch(fullUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(requestBody),
     });
 
-    console.log("Rate Plan API Response:", response);
+    if (!backendResponse.ok) {
+      const errorText = await backendResponse.text();
+      console.error("Backend request failed:", backendResponse.status, errorText);
+      
+      // For development, try the local API route as fallback
+      if (process.env.NODE_ENV === 'development') {
+        console.log("Trying local API route as fallback...");
+        try {
+          const localResponse = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/rate-plan`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestBody),
+          });
+          
+          if (localResponse.ok) {
+            const localResult = await localResponse.json();
+            console.log("Local API fallback successful:", localResult);
+            return localResult;
+          }
+        } catch (fallbackError) {
+          console.error("Local API fallback also failed:", fallbackError);
+        }
+      }
+      
+      return {
+        success: false,
+        message: `Backend request failed: ${backendResponse.status}`,
+        data: null,
+      };
+    }
+
+    const response = await backendResponse.json();
+    console.log("Backend Response:", response);
     console.log("Rate Plan API Response Structure:", {
       success: response?.success,
       data: response?.data,
@@ -78,8 +124,9 @@ export const getRatePlan = async (params) => {
     });
 
     // Check for successful response
-    if (response?.success && response?.data?.success) {
-      const rateData = response.data.data;
+    if (response?.success && response?.data) {
+      // Handle both response structures: direct data or nested data
+      const rateData = response.data?.data || response.data;
       console.log("Rate Plan Data:", rateData);
 
       // Check if the unit is blocked
@@ -98,7 +145,50 @@ export const getRatePlan = async (params) => {
       if (
         rateData?.message &&
         (rateData.message.includes("already booked") ||
-          rateData.message.includes("not available"))
+          rateData.message.includes("not available") ||
+          rateData.message.includes("unavailable"))
+      ) {
+        console.log(
+          "Rate plan indicates dates are not available:",
+          rateData.message
+        );
+        return {
+          success: false,
+          message: rateData.message,
+          data: null,
+          errorType: "dates_unavailable",
+        };
+      }
+
+      return {
+        success: true,
+        data: rateData,
+        message: "Rate plan fetched successfully",
+        isBlocked: false,
+      };
+    } else if (response?.success && response?.data?.success && response?.data?.data) {
+      // Handle nested success structure
+      const rateData = response.data.data;
+      console.log("Rate Plan Data (nested):", rateData);
+
+      // Check if the unit is blocked
+      if (rateData?.isBlocked) {
+        console.log("Unit is blocked, but allowing booking to proceed");
+        return {
+          success: true,
+          data: rateData,
+          message:
+            "Rate plan fetched successfully (Unit is blocked but booking allowed)",
+          isBlocked: true,
+        };
+      }
+
+      // Check if the response indicates dates are not available
+      if (
+        rateData?.message &&
+        (rateData.message.includes("already booked") ||
+          rateData.message.includes("not available") ||
+          rateData.message.includes("unavailable"))
       ) {
         console.log(
           "Rate plan indicates dates are not available:",
@@ -132,7 +222,8 @@ export const getRatePlan = async (params) => {
 
       if (
         errorMessage.includes("already booked") ||
-        errorMessage.includes("not available")
+        errorMessage.includes("not available") ||
+        errorMessage.includes("unavailable")
       ) {
         return {
           success: false,

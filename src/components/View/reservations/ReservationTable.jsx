@@ -55,7 +55,7 @@ const ReservationTable = ({
     const isNewBooking = urlParams.get("new");
 
     if (shouldRefresh === "true") {
-      console.log("Refresh flag detected in URL, refreshing reservations...");
+      console.log("🔍 Refresh flag detected in URL, refreshing reservations...");
       // Remove the refresh parameter from URL
       const newUrl = window.location.pathname;
       window.history.replaceState({}, "", newUrl);
@@ -63,17 +63,36 @@ const ReservationTable = ({
       // Reset to first page to see newest bookings
       setPagination((prev) => ({ ...prev, currentPage: 1 }));
 
-      // Add a small delay to ensure the backend has processed the new booking
-      setTimeout(() => {
-        fetchReservations();
-      }, 1000);
+              // Add a small delay to ensure the backend has processed the new booking
+        setTimeout(() => {
+          console.log("🔍 Executing delayed refresh...");
+          fetchReservations();
+          
+          // Add additional retry attempts with increasing delays
+          setTimeout(() => {
+            console.log("🔍 Retry 1: Checking for new booking...");
+            fetchReservations();
+          }, 5000); // Increased to 5 seconds
+          
+          setTimeout(() => {
+            console.log("🔍 Retry 2: Final check for new booking...");
+            fetchReservations();
+          }, 10000); // Increased to 10 seconds
+          
+          // Add one more retry after 30 seconds
+          setTimeout(() => {
+            console.log("🔍 Retry 3: Extended sync check...");
+            fetchReservations();
+          }, 30000); // 30 seconds
+        }, 5000); // Increased initial delay to 5 seconds
     }
 
     // Check localStorage for new booking flag
     try {
       const newBookingCreated = localStorage.getItem("newBookingCreated");
+      console.log("🔍 Checking localStorage for newBookingCreated:", newBookingCreated);
       if (newBookingCreated === "true") {
-        console.log("New booking flag detected in localStorage, refreshing...");
+        console.log("🔍 New booking flag detected in localStorage, refreshing...");
         localStorage.removeItem("newBookingCreated");
 
         // Reset to first page to see newest bookings
@@ -81,8 +100,9 @@ const ReservationTable = ({
 
         // Add a small delay to ensure the backend has processed the new booking
         setTimeout(() => {
+          console.log("🔍 Executing localStorage-triggered refresh...");
           fetchReservations();
-        }, 1000);
+        }, 2000); // Increased delay to 2 seconds
       }
     } catch (error) {
       console.error("Error checking localStorage:", error);
@@ -177,6 +197,8 @@ const ReservationTable = ({
         pagination.currentPage,
         pagination.pageSize
       );
+
+      console.log("🔍 Debug: ReservationModel response:", response);
 
       console.log("Full API Response:", {
         success: response.success,
@@ -446,7 +468,57 @@ const ReservationTable = ({
   };
 
   return (
-    <div>
+    <div className="space-y-4">
+      {/* Debug and Refresh Controls */}
+      <div className="flex justify-between items-center">
+        <h2 className="text-xl font-semibold">Reservations</h2>
+        <div className="flex space-x-2">
+          <button
+            onClick={() => {
+              console.log("🔍 Manual refresh triggered");
+              setPagination(prev => ({ ...prev, currentPage: 1 }));
+              fetchReservations();
+            }}
+            className="px-3 py-1 bg-blue-500 text-white rounded text-sm hover:bg-blue-600"
+            disabled={loading}
+          >
+            {loading ? "Refreshing..." : "Refresh"}
+          </button>
+          <button
+            onClick={() => {
+              console.log("🔍 Checking for new bookings...");
+              // Force refresh and check multiple times
+              setPagination(prev => ({ ...prev, currentPage: 1 }));
+              fetchReservations();
+              
+              // Check again after 2 seconds
+              setTimeout(() => fetchReservations(), 2000);
+              // Check again after 5 seconds
+              setTimeout(() => fetchReservations(), 5000);
+              // Check again after 10 seconds
+              setTimeout(() => fetchReservations(), 10000);
+            }}
+            className="px-3 py-1 bg-green-500 text-white rounded text-sm hover:bg-green-600"
+            disabled={loading}
+          >
+            Check New Bookings
+          </button>
+          <button
+            onClick={() => {
+              console.log("🔍 Debug: Current state:", {
+                reservationsCount: reservations.length,
+                filteredCount: filteredReservations.length,
+                pagination,
+                loading,
+                error
+              });
+            }}
+            className="px-3 py-1 bg-gray-500 text-white rounded text-sm hover:bg-gray-600"
+          >
+            Debug
+          </button>
+        </div>
+      </div>
       {/* Header with Refresh Button */}
       <div className="mx-2 mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
         <div className="flex items-center justify-between">

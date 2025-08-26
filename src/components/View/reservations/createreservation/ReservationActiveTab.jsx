@@ -253,17 +253,17 @@ const ReservationActiveTab = ({
               ...bookingData.stayDetails,
               checkIn: startDate,
               checkOut: endDate,
-              nights: rateData.stayingDurationNight,
+              nights: rateData.stayingDurationNight || calculateNights(),
             },
             pricing: {
-              totalRate: rateData.totalRate,
-              vat: rateData.vat,
-              serviceFee: rateData.serviceFee,
-              discountedRate: rateData.discountedRate,
-              stayingDurationPrice: rateData.stayingDurationPrice,
-              breakDownWithOtaCommission: rateData.breakDownWithOtaCommission,
-              discountDetails: rateData.discountDetails,
-              dateWiseRates: rateData.rates,
+              totalRate: rateData.totalRate || 0,
+              vat: rateData.vat || 0,
+              serviceFee: rateData.serviceFee || 0,
+              discountedRate: rateData.discountedRate || 0,
+              stayingDurationPrice: rateData.stayingDurationPrice || 0,
+              breakDownWithOtaCommission: rateData.breakDownWithOtaCommission || 0,
+              discountDetails: rateData.discountDetails || {},
+              dateWiseRates: rateData.rates || [],
             },
           };
           onBookingDataChange(updatedBookingData);
@@ -317,27 +317,41 @@ const ReservationActiveTab = ({
         platformFee: 0,
         vat: 0,
         total: 0,
+        breakDownWithOtaCommission: 0,
+        totalRate: 0,
+        dateWiseRates: [],
       };
     }
 
-    // Calculate average price per night from date-wise rates
-    const totalRate = rateData.rates.reduce((sum, rate) => sum + rate.rate, 0);
-    const avgPricePerNight = totalRate / rateData.rates.length;
+    // Safely calculate average price per night from date-wise rates
+    let totalRate = 0;
+    let avgPricePerNight = 0;
+    
+    if (rateData.rates && Array.isArray(rateData.rates) && rateData.rates.length > 0) {
+      totalRate = rateData.rates.reduce((sum, rate) => sum + (rate?.rate || 0), 0);
+      avgPricePerNight = totalRate / rateData.rates.length;
+    } else {
+      // Fallback to other pricing data if rates array is not available
+      totalRate = rateData.totalRate || 0;
+      avgPricePerNight = rateData.stayingDurationPrice ? 
+        (rateData.stayingDurationPrice / (rateData.stayingDurationNight || 1)) : 
+        (property?.price || 0);
+    }
 
     return {
-      nights: rateData.stayingDurationNight,
+      nights: rateData.stayingDurationNight || calculateNights(),
       pricePerNight: avgPricePerNight,
-      subtotal: rateData.stayingDurationPrice,
+      subtotal: rateData.stayingDurationPrice || 0,
       discount: rateData.discountDetails?.totalDiscount || 0,
       discountPercent: rateData.discountDetails?.discount || 0,
-      platformFee: rateData.serviceFee,
-      vat: rateData.vat,
-      total: parseFloat(rateData.discountedRate),
+      platformFee: rateData.serviceFee || 0,
+      vat: rateData.vat || 0,
+      total: parseFloat(rateData.discountedRate || 0),
       breakDownWithOtaCommission: parseFloat(
-        rateData.breakDownWithOtaCommission
+        rateData.breakDownWithOtaCommission || 0
       ),
-      totalRate: rateData.totalRate,
-      dateWiseRates: rateData.rates,
+      totalRate: rateData.totalRate || 0,
+      dateWiseRates: rateData.rates || [],
     };
   };
 
