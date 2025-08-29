@@ -128,7 +128,10 @@ const BlockUnitActiveTab = ({ property, bookingData, onBookingDataChange }) => {
           }...`
         );
       } else {
-        toast.error(response.message || "Failed to block unit.");
+        const msg =
+          response?.message ||
+          "Warning! The selected dates are already booked...";
+        toast.error(msg);
       }
     } catch (error) {
       console.log("Block unit API error:", error);

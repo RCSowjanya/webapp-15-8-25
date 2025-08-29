@@ -305,17 +305,12 @@ const ReservationActiveTab = ({
           onBookingDataChange(updatedBookingData);
         }
       } else {
-        console.warn("Rate Plan Error Response:", response);
         const errorMessage =
-          response?.message ||
-          "Selected dates are not available. Please choose different dates.";
+          "The selected dates are unavailable, Please choose another unit or different dates.";
         toast.error(errorMessage);
 
         // If dates are not available, reset the date range to prevent booking submission
-        if (
-          errorMessage.includes("already booked") ||
-          errorMessage.includes("not available")
-        ) {
+        if (true) {
           resetDateRange();
         }
         // Keep current selection so user can adjust without losing input

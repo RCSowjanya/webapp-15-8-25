@@ -260,7 +260,7 @@ const ExternalBookingActiveTab = ({
 
       // If blocked/min-stay, notify and reset
       if (hasBlockedFlag(response) || response?.data?.success === false) {
-        toast.error(extractBlockMessage(response));
+        toast.error("Warning! Double Booking...");
         resetDateRange();
         setRateData(null);
         setIsLoading(false);
