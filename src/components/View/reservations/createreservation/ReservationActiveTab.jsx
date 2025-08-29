@@ -25,6 +25,7 @@ const ReservationActiveTab = ({
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isBookingLoading, setIsBookingLoading] = useState(false);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState(null);
   const [selectedCountry, setSelectedCountry] = useState({
     code: "+966",
     label: "SA",
@@ -122,7 +123,7 @@ const ReservationActiveTab = ({
       const y = date.getFullYear();
       const m = String(date.getMonth() + 1).padStart(2, "0");
       const d = String(date.getDate()).padStart(2, "0");
-      return `${y}-${m}-${d}T00:00:00.000+00:00`;
+      return `${y}-${m}-${d}`;
     };
 
     const fd = new FormData();
@@ -131,6 +132,40 @@ const ReservationActiveTab = ({
     fd.set("propertyId", property?._id || "");
 
     const result = await checkRatePlanAction(null, fd);
+    // Robust blocked/min-stay detection and message extraction
+    const hasBlockedFlagApply = (resp) => {
+      if (!resp) return false;
+      const d = resp.data;
+      const payload = Array.isArray(d) ? d : d?.data ?? d;
+      return Boolean(
+        resp.isBlocked ||
+          d?.isBlocked ||
+          payload?.isBlocked ||
+          payload?.isMinStay ||
+          (d && d.success === false)
+      );
+    };
+    const extractBlockMessageApply = (resp) => {
+      const d = resp?.data;
+      const payload = Array.isArray(d) ? d : d?.data ?? d;
+      const minStay = payload?.minStay;
+      return (
+        resp?.message ||
+        d?.message ||
+        (payload?.isMinStay && typeof minStay === "number"
+          ? `Minimum stay is ${minStay} night${minStay === 1 ? "" : "s"}.`
+          : null) ||
+        "Selected dates are not available. Please choose different dates."
+      );
+    };
+
+    if (hasBlockedFlagApply(result)) {
+      toast.error(extractBlockMessageApply(result));
+      resetDateRange();
+      setRateData(null);
+      setIsLoading(false);
+      return;
+    }
     if (result?.success && result?.data) {
       setRateData(result.data);
       setDateRange(tempDateRange);
@@ -261,7 +296,8 @@ const ReservationActiveTab = ({
               serviceFee: rateData.serviceFee || 0,
               discountedRate: rateData.discountedRate || 0,
               stayingDurationPrice: rateData.stayingDurationPrice || 0,
-              breakDownWithOtaCommission: rateData.breakDownWithOtaCommission || 0,
+              breakDownWithOtaCommission:
+                rateData.breakDownWithOtaCommission || 0,
               discountDetails: rateData.discountDetails || {},
               dateWiseRates: rateData.rates || [],
             },
@@ -269,7 +305,7 @@ const ReservationActiveTab = ({
           onBookingDataChange(updatedBookingData);
         }
       } else {
-        console.error("Rate Plan Error Response:", response);
+        console.warn("Rate Plan Error Response:", response);
         const errorMessage =
           response?.message ||
           "Selected dates are not available. Please choose different dates.";
@@ -326,16 +362,23 @@ const ReservationActiveTab = ({
     // Safely calculate average price per night from date-wise rates
     let totalRate = 0;
     let avgPricePerNight = 0;
-    
-    if (rateData.rates && Array.isArray(rateData.rates) && rateData.rates.length > 0) {
-      totalRate = rateData.rates.reduce((sum, rate) => sum + (rate?.rate || 0), 0);
+
+    if (
+      rateData.rates &&
+      Array.isArray(rateData.rates) &&
+      rateData.rates.length > 0
+    ) {
+      totalRate = rateData.rates.reduce(
+        (sum, rate) => sum + (rate?.rate || 0),
+        0
+      );
       avgPricePerNight = totalRate / rateData.rates.length;
     } else {
       // Fallback to other pricing data if rates array is not available
       totalRate = rateData.totalRate || 0;
-      avgPricePerNight = rateData.stayingDurationPrice ? 
-        (rateData.stayingDurationPrice / (rateData.stayingDurationNight || 1)) : 
-        (property?.price || 0);
+      avgPricePerNight = rateData.stayingDurationPrice
+        ? rateData.stayingDurationPrice / (rateData.stayingDurationNight || 1)
+        : property?.price || 0;
     }
 
     return {
@@ -495,12 +538,12 @@ const ReservationActiveTab = ({
       });
 
       if (response.success) {
-        // Create a more descriptive success message with dates
-        const checkInDate = format(dateRange.startDate, "MMM dd, yyyy");
-        const checkOutDate = format(dateRange.endDate, "MMM dd, yyyy");
-        const successMessage = `You have successfully created a reservation for ${checkInDate} to ${checkOutDate}! Redirecting to reservations...`;
-
-        toast.success(successMessage);
+        const isPaid = selectedPaymentMethod === "pay_now";
+        const paidMsg =
+          "Booking created, the guest has been invited to make payment within 30 mins...";
+        const unpaidMsg =
+          "Booking created, the guest has been invited to verify identity...";
+        toast.success(isPaid ? paidMsg : unpaidMsg);
 
         // Update booking data in parent component
         if (onBookingDataChange && bookingData) {
@@ -918,18 +961,49 @@ const ReservationActiveTab = ({
 
           <div className="bg-white border border-gray-200 rounded-md p-2 flex gap-2">
             <button
-              onClick={() => handleBookingSubmit("pay_now")}
+              onClick={() => setSelectedPaymentMethod("pay_now")}
               disabled={isBookingLoading || !rateData}
-              className="w-full cursor-pointer bg-[#2694D0] text-white text-sm font-medium rounded-md py-2 hover:bg-[#1f7bb8] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className={`w-full cursor-pointer text-sm font-medium rounded-md py-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                selectedPaymentMethod === "pay_now"
+                  ? "bg-[#1f7bb8] text-white"
+                  : "bg-[#2694D0] text-white hover:bg-[#1f7bb8]"
+              }`}
             >
-              {isBookingLoading ? "Processing..." : "Pay Now"}
+              Pay Now
             </button>
             <button
-              onClick={() => handleBookingSubmit("pay_later")}
+              onClick={() => setSelectedPaymentMethod("pay_later")}
               disabled={isBookingLoading || !rateData}
-              className="w-full cursor-pointer bg-white border border-[#2694D0] text-[#2694D0] text-sm font-medium rounded-md py-2 hover:bg-[#f0f8ff] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className={`w-full cursor-pointer text-sm font-medium rounded-md py-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                selectedPaymentMethod === "pay_later"
+                  ? "bg-[#1f7bb8] text-white border-[#1f7bb8]"
+                  : "bg-white border border-[#2694D0] text-[#2694D0] hover:bg-[#f0f8ff]"
+              }`}
             >
-              {isBookingLoading ? "Processing..." : "Pay Later"}
+              Pay Later
+            </button>
+          </div>
+
+          {/* Create Reservation Button */}
+          <div className="bg-white border border-gray-200 rounded-md p-2">
+            <button
+              onClick={() => handleBookingSubmit(selectedPaymentMethod)}
+              disabled={isBookingLoading || !rateData || !selectedPaymentMethod}
+              className={`w-full cursor-pointer text-sm font-medium rounded-md py-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                selectedPaymentMethod
+                  ? "bg-[#25A4E8] text-white hover:bg-[#1f8bc8]"
+                  : "bg-gray-300 text-gray-500 cursor-not-allowed"
+              }`}
+            >
+              {!selectedPaymentMethod
+                ? "Select Payment Method First"
+                : isBookingLoading
+                ? "Creating Reservation..."
+                : `Create Reservation (${
+                    selectedPaymentMethod === "pay_now"
+                      ? "Pay Now"
+                      : "Pay Later"
+                  })`}
             </button>
           </div>
         </div>

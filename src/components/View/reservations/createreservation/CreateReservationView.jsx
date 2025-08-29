@@ -3,6 +3,7 @@ import React, { useState, useEffect } from "react";
 import { FaCalendarAlt, FaSearch } from "react-icons/fa";
 import { BsFillFilterSquareFill } from "react-icons/bs";
 import { IoMdArrowDropdown } from "react-icons/io";
+import { IoArrowBack } from "react-icons/io5";
 import { format } from "date-fns";
 import FilterPanel from "./FilterPanel";
 
@@ -12,9 +13,13 @@ const CreateReservationView = ({ token, initialProperties = [] }) => {
   const [searchTerm, setSearchTerm] = useState("");
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
   const [properties, setProperties] = useState(initialProperties);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(
+    !initialProperties || initialProperties.length === 0
+  );
   const [error, setError] = useState(null);
-  const [filteredProperties, setFilteredProperties] = useState([]);
+  const [filteredProperties, setFilteredProperties] = useState(
+    initialProperties || []
+  );
 
   // State for current filters
   const [currentFilters, setCurrentFilters] = useState({
@@ -34,9 +39,48 @@ const CreateReservationView = ({ token, initialProperties = [] }) => {
   useEffect(() => {
     setProperties(initialProperties || []);
     setFilteredProperties(initialProperties || []);
-    setLoading(false);
+
+    // If no initial properties, fetch them on the client side
+    if (!initialProperties || initialProperties.length === 0) {
+      setLoading(true);
+      fetchPropertiesOnClient();
+    } else {
+      setLoading(false);
+    }
+
     setError(null);
   }, [initialProperties]);
+
+  // Client-side fallback to fetch properties
+  const fetchPropertiesOnClient = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Import the function dynamically to avoid server/client mismatch
+      const { fetchActiveProperties } = await import(
+        "../../../Models/properties/PropertyModel"
+      );
+      const response = await fetchActiveProperties();
+
+      if (response?.success && response?.data) {
+        const fetchedProperties = response.data;
+        setProperties(fetchedProperties);
+        setFilteredProperties(fetchedProperties);
+        console.log(
+          `Client-side fetched ${fetchedProperties.length} properties`
+        );
+      } else {
+        setError(response?.message || "Failed to fetch properties");
+        console.error("Client-side property fetch failed:", response);
+      }
+    } catch (error) {
+      console.error("Error fetching properties on client:", error);
+      setError("Failed to load properties. Please refresh the page.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Filter properties based on search term
   const handleSearch = (term) => {
@@ -336,7 +380,14 @@ const CreateReservationView = ({ token, initialProperties = [] }) => {
 
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between flex-wrap gap-4  border-b border-gray-200 pb-2 ">
-        <div className="flex gap-3">
+        <div className="flex gap-3 items-center">
+          <button
+            onClick={() => router.push("/availability")}
+            className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50 active:bg-gray-100 transition"
+            aria-label="Back to availability"
+          >
+            <IoArrowBack className="w-5 h-5 text-gray-700" />
+          </button>
           <h1 className="text-xl font-bold text-[#7C69E8]">
             Create Reservation
           </h1>
@@ -478,12 +529,20 @@ const CreateReservationView = ({ token, initialProperties = [] }) => {
             <div className="text-center">
               <div className="text-red-500 text-6xl mb-4">⚠️</div>
               <p className="text-red-500 font-medium">{error}</p>
-              <button
-                onClick={() => window.location.reload()}
-                className="mt-4 px-4 py-2 bg-[#7C69E8] text-white rounded-md hover:bg-[#6B5DD3] transition-colors"
-              >
-                Retry
-              </button>
+              <div className="flex gap-2 mt-4">
+                <button
+                  onClick={fetchPropertiesOnClient}
+                  className="px-4 py-2 bg-[#7C69E8] text-white rounded-md hover:bg-[#6B5DD3] transition-colors"
+                >
+                  Try Again
+                </button>
+                <button
+                  onClick={() => window.location.reload()}
+                  className="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 transition-colors"
+                >
+                  Refresh Page
+                </button>
+              </div>
             </div>
           </div>
         ) : filteredProperties.length === 0 ? (
@@ -495,7 +554,7 @@ const CreateReservationView = ({ token, initialProperties = [] }) => {
                   ? "No properties match your criteria"
                   : "No properties found"}
               </p>
-              {hasActiveFilters() && (
+              {hasActiveFilters() ? (
                 <button
                   onClick={() => {
                     setSearchTerm("");
@@ -516,6 +575,13 @@ const CreateReservationView = ({ token, initialProperties = [] }) => {
                   className="mt-4 px-4 py-2 text-[#7C69E8] border border-[#7C69E8] rounded-md hover:bg-[#7C69E8] hover:text-white transition-colors"
                 >
                   Clear Filters
+                </button>
+              ) : (
+                <button
+                  onClick={fetchPropertiesOnClient}
+                  className="mt-4 px-4 py-2 bg-[#7C69E8] text-white rounded-md hover:bg-[#6B5DD3] transition-colors"
+                >
+                  Load Properties
                 </button>
               )}
             </div>

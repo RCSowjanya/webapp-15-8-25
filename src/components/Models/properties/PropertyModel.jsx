@@ -10,13 +10,20 @@ export const fetchActiveProperties = async () => {
   const token = session?.token || null;
 
   try {
-    console.log("Fetching active properties...");
-    console.log("Session:", session);
+    if (!token) {
+      return {
+        success: false,
+        data: [],
+        message: "No authentication token",
+      };
+    }
+
     console.log("Session keys:", Object.keys(session || {}));
     console.log("Token:", token);
     console.log("Token type:", typeof token);
 
     const response = await api.get("/property/list", {
+      searchParams: { isActive: true },
       authorizationHeader: `Bearer ${token}`,
       showSuccessToast: false,
       showErrorToast: false, // Handle errors manually

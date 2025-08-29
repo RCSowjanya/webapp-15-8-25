@@ -121,8 +121,11 @@ const BlockUnitActiveTab = ({ property, bookingData, onBookingDataChange }) => {
       console.log("After API call");
       console.log("Block unit API response:", response);
       if (response.success) {
+        const nights = calculateNights();
         toast.success(
-          "You have successfully blocked the selected dates for this unit."
+          `This property will be blocked for ${nights} night${
+            nights === 1 ? "" : "s"
+          }...`
         );
       } else {
         toast.error(response.message || "Failed to block unit.");

@@ -54,12 +54,12 @@ const ExternalBookingActiveTab = ({
   ];
 
   const externalBookingSources = [
-    { value: "Airbnb", label: "Airbnb" },
-    { value: "Booking.com", label: "Booking.com" },
-    { value: "Expedia", label: "Expedia" },
-    { value: "Agoda", label: "Agoda" },
-    { value: "Hotels.com", label: "Hotels.com" },
-    { value: "Other", label: "Other" },
+    { value: "Airbnb", label: "Airbnb", img: "/images/airbnb.svg" },
+    { value: "Booking.com", label: "Booking.com", img: "/images/agoda.svg" },
+    { value: "Expedia", label: "Expedia", img: "/images/agoda.svg" },
+    { value: "Agoda", label: "Agoda", img: "/images/agoda.svg" },
+    { value: "Hotels.com", label: "Hotels.com", img: "/images/agoda.svg" },
+    { value: "Other", label: "Other", img: "" },
   ];
 
   const sources = [
@@ -70,7 +70,10 @@ const ExternalBookingActiveTab = ({
   ];
 
   const [showModal, setShowModal] = useState(false);
-  const [selectedSource, setSelectedSource] = useState(sources[0]);
+  const [selectedSource, setSelectedSource] = useState({
+    name: "Airbnb",
+    img: "/images/airbnb.svg",
+  });
 
   // Initialize with booking data
   useEffect(() => {
@@ -136,7 +139,9 @@ const ExternalBookingActiveTab = ({
       today.setHours(0, 0, 0, 0);
 
       if (startDate < today) {
-        toast.error("Check-in date cannot be in the past. Please select a future date.");
+        toast.error(
+          "Check-in date cannot be in the past. Please select a future date."
+        );
         return;
       }
 
@@ -144,7 +149,7 @@ const ExternalBookingActiveTab = ({
         toast.error("Check-out date must be after check-in date.");
         return;
       }
-      
+
       await handleDateRangeChange({ selection: tempDateRange });
       setShowDatePicker(false);
     }
@@ -156,8 +161,6 @@ const ExternalBookingActiveTab = ({
       dateRange.endDate.getTime() - dateRange.startDate.getTime();
     return Math.max(1, Math.ceil(timeDiff / (1000 * 3600 * 24)));
   };
-
-
 
   // Handle date range change
   const handleDateRangeChange = async (ranges) => {
@@ -176,7 +179,9 @@ const ExternalBookingActiveTab = ({
     today.setHours(0, 0, 0, 0);
 
     if (startDate < today) {
-      toast.error("Check-in date cannot be in the past. Please select a future date.");
+      toast.error(
+        "Check-in date cannot be in the past. Please select a future date."
+      );
       resetDateRange();
       setIsLoading(false);
       return;
@@ -206,9 +211,17 @@ const ExternalBookingActiveTab = ({
     }
 
     try {
+      // Use YYYY-MM-DD format expected by backend
+      const formatDateForAPI = (date) => {
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, "0");
+        const d = String(date.getDate()).padStart(2, "0");
+        return `${y}-${m}-${d}`;
+      };
+
       const ratePlanParams = {
-        startDate: startDate.toISOString(),
-        endDate: endDate.toISOString(),
+        startDate: formatDateForAPI(startDate),
+        endDate: formatDateForAPI(endDate),
         propertyId: property._id,
       };
 
@@ -216,21 +229,48 @@ const ExternalBookingActiveTab = ({
 
       const response = await getRatePlan(ratePlanParams);
 
-            console.log("Rate Plan Response:", response);
+      console.log("Rate Plan Response:", response);
+
+      // Helpers: detect blocked/min-stay and extract message from nested shapes
+      const hasBlockedFlag = (resp) => {
+        if (!resp) return false;
+        const d = resp.data;
+        const payload = Array.isArray(d) ? d : d?.data ?? d;
+        return Boolean(
+          resp.isBlocked ||
+            d?.isBlocked ||
+            payload?.isBlocked ||
+            payload?.isMinStay
+        );
+      };
+
+      const extractBlockMessage = (resp) => {
+        const d = resp?.data;
+        const payload = Array.isArray(d) ? d : d?.data ?? d;
+        const minStay = payload?.minStay;
+        return (
+          resp?.message ||
+          d?.message ||
+          (payload?.isMinStay && typeof minStay === "number"
+            ? `Minimum stay is ${minStay} night${minStay === 1 ? "" : "s"}.`
+            : null) ||
+          "Selected dates are not available. Please choose different dates."
+        );
+      };
+
+      // If blocked/min-stay, notify and reset
+      if (hasBlockedFlag(response) || response?.data?.success === false) {
+        toast.error(extractBlockMessage(response));
+        resetDateRange();
+        setRateData(null);
+        setIsLoading(false);
+        return;
+      }
 
       // Check if response is successful - handle both response structures
       if (response?.success && (response?.data || response?.data?.data)) {
         const rateData = response.data?.data || response.data;
-        
-        if (response.isBlocked) {
-          toast.error(
-            "These dates are blocked due to some reason, please select another date."
-          );
-          resetDateRange();
-          setIsLoading(false);
-          return;
-        }
-        
+
         console.log("Rate Data:", rateData);
         setRateData(rateData);
 
@@ -242,77 +282,37 @@ const ExternalBookingActiveTab = ({
               ...bookingData.stayDetails,
               checkIn: startDate,
               checkOut: endDate,
-              nights: rateData.stayingDurationNight,
+              nights: rateData.stayingDurationNight || calculateNights(),
             },
             pricing: {
-              totalRate: rateData.totalRate,
-              vat: rateData.vat,
-              serviceFee: rateData.serviceFee,
-              discountedRate: rateData.discountedRate,
-              stayingDurationPrice: rateData.stayingDurationPrice,
-              breakDownWithOtaCommission: rateData.breakDownWithOtaCommission,
-              discountDetails: rateData.discountDetails,
-              dateWiseRates: rateData.rates,
+              totalRate: rateData.totalRate || 0,
+              vat: rateData.vat || 0,
+              serviceFee: rateData.serviceFee || 0,
+              discountedRate: rateData.discountedRate || 0,
+              stayingDurationPrice: rateData.stayingDurationPrice || 0,
+              breakDownWithOtaCommission:
+                rateData.breakDownWithOtaCommission || 0,
+              discountDetails: rateData.discountDetails || {},
+              dateWiseRates: rateData.rates || [],
             },
           };
           onBookingDataChange(updatedBookingData);
         }
       } else {
         // Handle unsuccessful response
-        const errorMessage = response?.message || "Failed to fetch pricing. Please try again.";
-        console.error("Rate plan fetch failed:", errorMessage);
-
-        // Handle specific error types
-        if (response?.errorType === "dates_unavailable") {
-          toast.error(
-            "Selected dates are not available. This property is already booked for the chosen dates. Please select different dates."
-          );
-          resetDateRange();
-          setRateData(null); // Clear rate data
-        } else if (response?.message?.includes("already booked") || 
-                   response?.message?.includes("not available") ||
-                   response?.message?.includes("unavailable")) {
-          toast.error(
-            "Selected dates are not available. This property is already booked for the chosen dates. Please select different dates."
-          );
-          resetDateRange();
-          setRateData(null);
-        } else {
-          toast.error(errorMessage);
-          resetDateRange();
-        }
+        const errorMessage =
+          response?.message || "Failed to fetch pricing. Please try again.";
+        console.warn("Rate plan fetch failed:", errorMessage);
+        toast.error(errorMessage);
+        resetDateRange();
+        setRateData(null);
       }
     } catch (error) {
       console.error("Error fetching rate plan:", error);
-
-      // Handle specific error messages
-      if (error.message && error.message.includes("unavailable")) {
-        toast.error(
-          "Selected dates are not available. This property is already booked for the chosen dates. Please select different dates."
-        );
-        resetDateRange();
-        setRateData(null); // Clear rate data
-      } else if (error.message && error.message.includes("401")) {
-        toast.error("Please login to check room availability.");
-        resetDateRange();
-      } else if (error.message && error.message.includes("404")) {
-        toast.error("Property not found. Please refresh the page.");
-        resetDateRange();
-      } else if (error.message && error.message.includes("409")) {
-        toast.error("Selected dates are already booked. Please choose different dates.");
-        resetDateRange();
-        setRateData(null);
-      } else if (error.message && error.message.includes("Failed to fetch") || 
-                 error.message && error.message.includes("NetworkError")) {
-        toast.error("Network error. Please check your connection and try again.");
-        resetDateRange();
-      } else if (error.message && error.message.includes("timeout")) {
-        toast.error("Request timed out. Please try again.");
-        resetDateRange();
-      } else {
-        toast.error("Failed to fetch pricing. Please try again.");
-        resetDateRange();
-      }
+      toast.error(
+        error?.message ||
+          "An error occurred while fetching rates. Please try again."
+      );
     } finally {
       setIsLoading(false);
     }
@@ -492,12 +492,9 @@ const ExternalBookingActiveTab = ({
       console.log("External Booking API response:", response);
 
       if (response.success) {
-        // Create a more descriptive success message with dates
-        const checkInDate = format(dateRange.startDate, "MMM dd, yyyy");
-        const checkOutDate = format(dateRange.endDate, "MMM dd, yyyy");
-        const successMessage = `You have successfully created an external reservation for ${checkInDate} to ${checkOutDate} via ${selectedSource.name}! Redirecting to reservations...`;
-
-        toast.success(successMessage);
+        toast.success(
+          "Reservation created, An invite has been sent to the guest..."
+        );
 
         // Update booking data in parent component
         if (onBookingDataChange && bookingData) {
@@ -650,8 +647,6 @@ const ExternalBookingActiveTab = ({
 
             {/* Full-width bottom border */}
             <div className="border-t border-gray-200" />
-
-
 
             {/* Number of nights */}
             <div className="p-2">
@@ -921,6 +916,7 @@ const ExternalBookingActiveTab = ({
                 </label>
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
+                    {console.log("Rendering selectedSource:", selectedSource)}
                     {selectedSource.img ? (
                       <img
                         src={selectedSource.img}
@@ -944,18 +940,13 @@ const ExternalBookingActiveTab = ({
           {/* Footer Buttons */}
           <div className="flex gap-2">
             <button
-              onClick={() => handleBookingSubmit("pay_now")}
-              disabled={isBookingLoading || isLoading}
-              className="w-full cursor-pointer bg-[#2694D0] text-white text-sm font-medium rounded-md py-2 hover:bg-[#1f7bb8] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={() => handleBookingSubmit("external_booking")}
+              disabled={isBookingLoading || isLoading || !rateData}
+              className="w-full cursor-pointer bg-[#25A4E8] text-white text-sm font-medium rounded-md py-3 hover:bg-[#1f8bc8] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isBookingLoading || isLoading ? "Processing..." : "Pay Now"}
-            </button>
-            <button
-              onClick={() => handleBookingSubmit("pay_later")}
-              disabled={isBookingLoading || isLoading}
-              className="w-full cursor-pointer bg-white border border-[#2694D0] text-[#2694D0] text-sm font-medium rounded-md py-2 hover:bg-[#f0f8ff] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isBookingLoading || isLoading ? "Processing..." : "Pay Later"}
+              {isBookingLoading || isLoading
+                ? "Creating Reservation..."
+                : "Create Reservation"}
             </button>
           </div>
         </div>
@@ -974,26 +965,31 @@ const ExternalBookingActiveTab = ({
               Select Source
             </h2>
             <div className="flex flex-col gap-2">
-              {sources.map((src) => (
+              {externalBookingSources.map((src) => (
                 <button
-                  key={src.name}
+                  key={src.value}
                   className="flex items-center justify-between w-full px-4 py-3 rounded hover:bg-gray-100"
                   onClick={() => {
-                    setSelectedSource(src);
+                    console.log("Selected source:", src);
+                    setSelectedSource({ name: src.label, img: src.img });
                     setIsOtherSelected(false);
+                    console.log("Updated selectedSource:", {
+                      name: src.label,
+                      img: src.img,
+                    });
                   }}
                   type="button"
                 >
                   <div className="flex items-center gap-2">
                     {src.img ? (
-                      <img src={src.img} alt={src.name} className="w-6 h-6" />
+                      <img src={src.img} alt={src.label} className="w-6 h-6" />
                     ) : null}
-                    <span>{src.name}</span>
+                    <span>{src.label}</span>
                   </div>
                   <input
                     type="checkbox"
                     checked={
-                      selectedSource.name === src.name && !isOtherSelected
+                      selectedSource.name === src.label && !isOtherSelected
                     }
                     readOnly
                     className="accent-[#7C69E8] w-5 h-5"

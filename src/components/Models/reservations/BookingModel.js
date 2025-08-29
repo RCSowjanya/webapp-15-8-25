@@ -27,13 +27,10 @@ import { auth } from "@/app/(dashboard-screens)/auth";
  */
 export const createBooking = async (bookingData) => {
   const session = await auth();
-  const token = session?.token;
-
-  console.log("Session object:", session);
-  console.log("Token from session:", token);
+  const token = session?.token || null;
 
   if (!token) {
-    console.log("No token found for booking request");
+    console.log("No token found");
     return {
       success: false,
       message: "No token. Please log in again.",
@@ -41,69 +38,48 @@ export const createBooking = async (bookingData) => {
     };
   }
 
-  // Validate required parameters
-  console.log("Booking data received:", bookingData);
-
-  const requiredFields = [
-    "property._id",
-    "guestDetails.firstName",
-    "guestDetails.lastName",
-    "guestDetails.mobileNumber",
-    "guestDetails.countryCode",
-    "guestDetails.adults",
-    "guestDetails.totalGuests",
-    "stayDetails.checkIn",
-    "stayDetails.checkOut",
-    "stayDetails.nights",
-    "pricing.total",
-  ];
-
-  const missingFields = [];
-  for (const field of requiredFields) {
-    const value = field
-      .split(".")
-      .reduce((obj, key) => obj?.[key], bookingData);
-    if (!value) {
-      missingFields.push(field);
-    }
-  }
-
-  if (missingFields.length > 0) {
-    console.error("Missing required fields:", missingFields);
-    return {
-      success: false,
-      message: `Missing required fields: ${missingFields.join(", ")}`,
-      data: null,
-    };
-  }
-
   try {
-    console.log("Creating booking with data:", bookingData);
-    console.log("📅 Date debugging:");
-    console.log("checkIn type:", typeof bookingData.stayDetails.checkIn);
-    console.log("checkIn value:", bookingData.stayDetails.checkIn);
-    console.log("checkOut type:", typeof bookingData.stayDetails.checkOut);
-    console.log("checkOut value:", bookingData.stayDetails.checkOut);
+    // Validate required fields
+    if (!bookingData.property?._id) {
+      return {
+        success: false,
+        message: "Property ID is required",
+        data: null,
+      };
+    }
 
-    // Validate and convert dates
+    if (
+      !bookingData.stayDetails?.checkIn ||
+      !bookingData.stayDetails?.checkOut
+    ) {
+      return {
+        success: false,
+        message: "Check-in and check-out dates are required",
+        data: null,
+      };
+    }
+
+    // Parse and validate dates
     const checkInDate = new Date(bookingData.stayDetails.checkIn);
     const checkOutDate = new Date(bookingData.stayDetails.checkOut);
-    
-    console.log("Converted checkInDate:", checkInDate);
-    console.log("Converted checkOutDate:", checkOutDate);
-    
-    // Check if dates are valid
+
     if (isNaN(checkInDate.getTime())) {
-      console.error("❌ Invalid check-in date:", bookingData.stayDetails.checkIn);
+      console.error(
+        "❌ Invalid check-in date:",
+        bookingData.stayDetails.checkIn
+      );
       return {
         success: false,
         message: "Invalid check-in date format",
         data: null,
       };
     }
-    
+
     if (isNaN(checkOutDate.getTime())) {
-      console.error("❌ Invalid check-out date:", bookingData.stayDetails.checkOut);
+      console.error(
+        "❌ Invalid check-out date:",
+        bookingData.stayDetails.checkOut
+      );
       return {
         success: false,
         message: "Invalid check-out date format",
@@ -113,55 +89,36 @@ export const createBooking = async (bookingData) => {
 
     console.log("✅ Dates are valid");
 
-    // Format dates to API expected format: "2025-06-11T00:00:00.000+00:00"
+    // Format dates to API expected format: "2024-12-14"
     const formatDateForAPI = (date) => {
       const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const day = String(date.getDate()).padStart(2, '0');
-      return `${year}-${month}-${day}T00:00:00.000+00:00`;
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
     };
 
     const formattedCheckIn = formatDateForAPI(checkInDate);
     const formattedCheckOut = formatDateForAPI(checkOutDate);
-    
+
     console.log("📅 Formatted dates for API:");
     console.log("checkIn:", formattedCheckIn);
     console.log("checkOut:", formattedCheckOut);
 
-    // Prepare the request body for the API
+    // Prepare the request body with the correct API parameters
     const requestBody = {
       propertyId: bookingData.property._id,
-      guestDetails: {
-        firstName: bookingData.guestDetails.firstName,
-        lastName: bookingData.guestDetails.lastName,
-        mobileNumber: bookingData.guestDetails.mobileNumber,
-        countryCode: bookingData.guestDetails.countryCode,
-        adults: bookingData.guestDetails.adults,
-        children: bookingData.guestDetails.children,
-        totalGuests: bookingData.guestDetails.totalGuests,
-      },
-      stayDetails: {
-        checkIn: formattedCheckIn,
-        checkOut: formattedCheckOut,
-        nights: bookingData.stayDetails.nights,
-      },
-      pricing: {
-        total: bookingData.pricing.total,
-        subtotal: bookingData.pricing.subtotal || 0,
-        discount: bookingData.pricing.discount || 0,
-        platformFee: bookingData.pricing.platformFee || 0,
-        vat: bookingData.pricing.vat || 0,
-        totalRate: bookingData.pricing.totalRate || 0,
-        discountedRate: bookingData.pricing.discountedRate || 0,
-        stayingDurationPrice: bookingData.pricing.stayingDurationPrice || 0,
-        breakDownWithOtaCommission:
-          bookingData.pricing.breakDownWithOtaCommission || 0,
-        discountDetails: bookingData.pricing.discountDetails || {},
-        dateWiseRates: bookingData.pricing.dateWiseRates || [],
-      },
-      note: bookingData.note || "",
-      paymentMethod: bookingData.paymentMethod || "pay_later",
-      isPmBooking: true,
+      startDate: formattedCheckIn,
+      endDate: formattedCheckOut,
+      adults: bookingData.guestDetails.adults || 1,
+      child: bookingData.guestDetails.children || 0,
+      fname: bookingData.guestDetails.firstName || "",
+      lname: bookingData.guestDetails.lastName || "",
+      phone: bookingData.guestDetails.mobileNumber || "",
+      countryCode: bookingData.guestDetails.countryCode || "+966",
+      stayingDurationNight: bookingData.stayDetails.nights || 1,
+      reservedByOwner: true,
+      isStayhubBooking: true,
+      totalPrice: bookingData.pricing.total || 0,
     };
 
     console.log("API Request Body:", requestBody);
@@ -258,15 +215,12 @@ export const createBooking = async (bookingData) => {
               const errorData = JSON.parse(message);
               errorMessage =
                 errorData.message ||
-                "Unable to create booking. Please try again.";
-            } catch (e) {
+                "An error occurred while creating the booking.";
+            } catch {
               errorMessage =
-                message || "Unable to create booking. Please try again.";
+                message || "An error occurred while creating the booking.";
             }
         }
-      } else if (error.message.includes("Failed to fetch")) {
-        errorMessage =
-          "Network error. Please check your connection and try again.";
       } else {
         errorMessage = error.message;
       }

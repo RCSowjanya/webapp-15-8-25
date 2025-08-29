@@ -25,8 +25,12 @@ const ReservationModel = async (page = 1, pageSize = 10) => {
 
   try {
     console.log("🔍 Fetching reservations from /pm/bookings...");
-    console.log("🔍 Request params:", { page, pageSize, token: token ? "present" : "missing" });
-    
+    console.log("🔍 Request params:", {
+      page,
+      pageSize,
+      token: token ? "present" : "missing",
+    });
+
     // Try to get recent bookings first
     const response = await api.get(
       `/pm/bookings?page=${page}&pageSize=${pageSize}`,
@@ -46,9 +50,11 @@ const ReservationModel = async (page = 1, pageSize = 10) => {
       totalData: response?.data?.total_data,
       dataLength: response?.data?.data?.length || 0,
     });
-    
+
     // Check if we need to use different parameters for recent bookings
-    console.log("🔍 Checking if we need different parameters for recent bookings...");
+    console.log(
+      "🔍 Checking if we need different parameters for recent bookings..."
+    );
     console.log("🔍 Current page:", page, "Page size:", pageSize);
     console.log("🔍 Total data available:", response?.data?.total_data);
 
@@ -63,7 +69,7 @@ const ReservationModel = async (page = 1, pageSize = 10) => {
       responseKeys: response ? Object.keys(response) : [],
       dataKeys: response?.data ? Object.keys(response.data) : [],
     });
-    
+
     if (response?.success && response?.data?.success && response?.data?.data) {
       const apiData = response.data.data;
       console.log("🔍 API Data (nested structure):", {
@@ -103,9 +109,9 @@ const ReservationModel = async (page = 1, pageSize = 10) => {
           isCancelled: res.isCancelled,
         }));
         console.log("🔍 All reservation IDs:", reservationIds);
-        
+
         // Check if any reservations match the expected structure
-        const recentReservations = apiData.data.filter(res => {
+        const recentReservations = apiData.data.filter((res) => {
           const created = res.createdAt || res.created_at;
           if (created) {
             const createdDate = new Date(created);
@@ -115,7 +121,10 @@ const ReservationModel = async (page = 1, pageSize = 10) => {
           }
           return false;
         });
-        console.log("🔍 Recent reservations (last 24h):", recentReservations.length);
+        console.log(
+          "🔍 Recent reservations (last 24h):",
+          recentReservations.length
+        );
 
         // Log the exact paths we're trying to access
         console.log("Data access paths:", {
@@ -402,8 +411,86 @@ export const createBooking = async (bookingData) => {
   }
 
   try {
-    console.log("🔍 Making API call to /property/book with:", bookingData);
-    const response = await api.post(`/property/book`, bookingData, {
+    // Validate required fields
+    if (!bookingData.property?._id) {
+      return {
+        success: false,
+        message: "Property ID is required",
+      };
+    }
+
+    if (
+      !bookingData.stayDetails?.checkIn ||
+      !bookingData.stayDetails?.checkOut
+    ) {
+      return {
+        success: false,
+        message: "Check-in and check-out dates are required",
+      };
+    }
+
+    // Parse and validate dates
+    const checkInDate = new Date(bookingData.stayDetails.checkIn);
+    const checkOutDate = new Date(bookingData.stayDetails.checkOut);
+
+    if (isNaN(checkInDate.getTime())) {
+      console.error(
+        "❌ Invalid check-in date:",
+        bookingData.stayDetails.checkIn
+      );
+      return {
+        success: false,
+        message: "Invalid check-in date format",
+      };
+    }
+
+    if (isNaN(checkOutDate.getTime())) {
+      console.error(
+        "❌ Invalid check-out date:",
+        bookingData.stayDetails.checkOut
+      );
+      return {
+        success: false,
+        message: "Invalid check-out date format",
+      };
+    }
+
+    console.log("✅ Dates are valid");
+
+    // Format dates to API expected format: "2024-12-14"
+    const formatDateForAPI = (date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    };
+
+    const formattedCheckIn = formatDateForAPI(checkInDate);
+    const formattedCheckOut = formatDateForAPI(checkOutDate);
+
+    console.log("📅 Formatted dates for API:");
+    console.log("checkIn:", formattedCheckIn);
+    console.log("checkOut:", formattedCheckOut);
+
+    // Prepare the request body with the correct API parameters
+    const requestBody = {
+      propertyId: bookingData.property._id,
+      startDate: formattedCheckIn,
+      endDate: formattedCheckOut,
+      adults: bookingData.guestDetails.adults || 1,
+      child: bookingData.guestDetails.children || 0,
+      fname: bookingData.guestDetails.firstName || "",
+      lname: bookingData.guestDetails.lastName || "",
+      phone: bookingData.guestDetails.mobileNumber || "",
+      countryCode: bookingData.guestDetails.countryCode || "+966",
+      stayingDurationNight: bookingData.stayDetails.nights || 1,
+      reservedByOwner: true,
+      isStayhubBooking: true,
+      totalPrice: bookingData.pricing.total || 0,
+    };
+
+    console.log("🔍 Making API call to /property/book with:", requestBody);
+    const response = await api.post(`/property/book`, requestBody, {
       authorizationHeader: `Bearer ${token}`,
       showErrorToast: false, // Handle toast in the component
     });
@@ -424,7 +511,10 @@ export const createBooking = async (bookingData) => {
       return {
         success: true,
         data: response.data,
-        message: response.data.message || response.message || "Booking created successfully!",
+        message:
+          response.data.message ||
+          response.message ||
+          "Booking created successfully!",
       };
     } else if (response?.data?.success) {
       console.log("Successfully created booking (nested structure)");
